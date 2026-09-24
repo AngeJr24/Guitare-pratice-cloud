@@ -13,7 +13,9 @@
 
 ## Preuves de validation
 
+- Capture écran : [captures/tp1-login.png](captures/tp1-login.png)
 - Commande exécutée : `cd "d:\KRA Ange\MASTER 1\Composants Logiciel\Web\AngularM1_Miage_2026_2027_TP123-main\frontend-starter" ; npm run build`
 - Résultat : build réussi, sans erreur bloquante. Les éléments de sécurité et d’authentification du TP1 ont été vérifiés au niveau du code et de la structure du flux.
+- Vérification API : appel direct à `POST /api/auth/login` avec `demo@example.com` / `Demo1234!` renvoyant statut `200` et un JWT.
 
 
