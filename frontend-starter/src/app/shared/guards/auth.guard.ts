@@ -6,6 +6,12 @@ import { AuthService } from '../services/auth.service';
 export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
-  
-  return auth.token() ? true : router.createUrlTree(['/login']);
+
+  const token = auth.token() ?? localStorage.getItem('gpc_token');
+  if (token) {
+    auth.token.set(token);
+    return true;
+  }
+
+  return router.createUrlTree(['/login']);
 };

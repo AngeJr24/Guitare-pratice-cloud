@@ -8,7 +8,11 @@ import { AuthService } from '../services/auth.service';
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
-  const token = auth.token();
+  const token = auth.token() ?? localStorage.getItem('gpc_token');
+
+  if (token) {
+    auth.token.set(token);
+  }
 
   return next(
     token

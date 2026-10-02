@@ -10,15 +10,29 @@ export class AuthService {
   private readonly http = inject(HttpClient);
 
   readonly currentUser = signal<User | null>(null);
-  readonly token = signal<string | null>(localStorage.getItem('gpc_token'));
+  readonly token = signal<string | null>(this.readStoredToken());
 
-  constructor() {
-    if (this.token()) {
-      this.profile().subscribe({
-        next: (user) => this.currentUser.set(user),
-        error: () => this.logout(),
-      });
+  private readStoredToken(): string | null {
+    try {
+      return localStorage.getItem('gpc_token');
+    } catch {
+      return null;
     }
+  }
+
+  restoreSession(): void {
+    const storedToken = this.readStoredToken();
+    if (!storedToken) {
+      this.token.set(null);
+      this.currentUser.set(null);
+      return;
+    }
+
+    this.token.set(storedToken);
+    this.profile().subscribe({
+      next: (user) => this.currentUser.set(user),
+      error: () => this.logout(),
+    });
   }
 
   login(email: string, password: string) {
@@ -46,6 +60,7 @@ export class AuthService {
   }
 
   logout(): void {
+    console.log('[auth] logout called');
     localStorage.removeItem('gpc_token');
     this.token.set(null);
     this.currentUser.set(null);

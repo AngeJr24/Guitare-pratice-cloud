@@ -6,39 +6,101 @@
   </div>
 
   <div class="grid">
-    <article class="card">
+    <article class="card upload-card">
       <h2>Importer</h2>
-      <label>Titre<input [formControl]="title" /></label>
-      <label>Fichier audio<input type="file" accept="audio/*" (change)="choose($event)" /></label>
-      <button type="button" (click)="upload()" [disabled]="!file">Envoyer</button>
+      <label class="field">
+        <span>Titre</span>
+        <input [formControl]="title" placeholder="Ex. Groove 01" />
+      </label>
+      <label class="field">
+        <span>Fichier audio</span>
+        <input id="track-file-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,.mp3,.wav,.ogg,.m4a" (change)="choose($event)" />
+      </label>
+
+      @if (uploadError()) {
+        <p class="message error">{{ uploadError() }}</p>
+      }
+      @if (uploadSuccess()) {
+        <p class="message success">{{ uploadSuccess() }}</p>
+      }
+
+      <button type="button" (click)="upload()" [disabled]="uploadLoading() || !file">
+        @if (uploadLoading()) {
+          <span>Envoi…</span>
+        } @else {
+          <span>Envoyer</span>
+        }
+      </button>
     </article>
 
-    <article class="card">
+    <article class="card library-card">
       <div class="row">
         <h2>Mes pistes</h2>
-        <button type="button" (click)="load()">Actualiser</button>
+        <button type="button" class="secondary" (click)="load()" [disabled]="loading()">Actualiser</button>
       </div>
+
+      <label class="field filter-field">
+        <span>Filtrer par titre</span>
+        <input
+          type="search"
+          [value]="filter()"
+          (input)="filter.set($any($event.target).value)"
+          placeholder="Rechercher une piste"
+        />
+      </label>
+
       @if (loading()) {
-        <p>Chargement…</p>
+        <p class="message info">Chargement des pistes…</p>
       }
-      @for (track of tracks(); track track.id) {
-        <div class="track">
-          <div>
-            <b>{{ track.title }}</b>
-            <small>{{ track.originalName }} · {{ track.size }} Ko</small>
-          </div>
-          <button type="button" (click)="play(track)" [attr.aria-label]="'Lire ' + track.title">▶</button>
-        </div>
-      } @empty {
-        <p>Aucune piste.</p>
+
+      @if (listError()) {
+        <p class="message error">{{ listError() }}</p>
       }
-      <div class="pager">
-        <button type="button" (click)="go(page() - 1)" [disabled]="page() === 1">Préc.</button>
-        <span>Page {{ page() }} / {{ pages() }}</span>
-        <button type="button" (click)="go(page() + 1)" [disabled]="page() === pages()">Suiv.</button>
+
+      <div class="track-list">
+        @for (track of filteredTracks(); track track.id) {
+          <article class="track-card" [class.active]="currentTrackId() === track.id">
+            <div class="track-info">
+              <h3>{{ track.title }}</h3>
+              <p>{{ track.originalName }} · {{ track.size }} octets</p>
+            </div>
+            <div class="track-actions">
+              <button type="button" class="play-button" (click)="play(track)" [attr.aria-label]="'Lire ' + track.title">
+                {{ currentTrackId() === track.id && audioUrl() ? '⏸' : '▶' }}
+              </button>
+              <button type="button" class="delete-button" (click)="deleteTrack(track)" [attr.aria-label]="'Supprimer ' + track.title">
+                Supprimer
+              </button>
+            </div>
+          </article>
+        } @empty {
+          @if (!loading()) {
+            <p class="empty-state">Aucune piste ne correspond au filtre.</p>
+          }
+        }
       </div>
+
+      <div class="pager">
+        <button type="button" (click)="go(page() - 1)" [disabled]="page() === 1 || loading()">Précédent</button>
+        <span>Page {{ page() }} / {{ pages() }}</span>
+        <button type="button" (click)="go(page() + 1)" [disabled]="page() >= pages() || loading()">Suivant</button>
+      </div>
+
       @if (audioUrl()) {
-        <audio [src]="audioUrl()" controls autoplay></audio>
+        <div class="player-box">
+          <p class="playing-label">
+            @if (currentTrackId()) {
+              Lecture en cours
+            } @else {
+              Lecteur audio
+            }
+          </p>
+          <audio [src]="audioUrl()" controls autoplay></audio>
+        </div>
+      }
+
+      @if (audioError()) {
+        <p class="message error">{{ audioError() }}</p>
       }
     </article>
   </div>

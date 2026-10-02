@@ -21,6 +21,10 @@ export class TrackService {
     return this.http.post<Track>('/api/tracks', body);
   }
 
+  delete(id: string) {
+    return this.http.delete<void>(`/api/tracks/${id}`);
+  }
+
   audio(id: string) {
     return this.http.get(`/api/tracks/${id}/audio`, {
       responseType: 'blob',

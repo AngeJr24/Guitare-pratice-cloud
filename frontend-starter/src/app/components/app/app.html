@@ -1,16 +1,76 @@
 <header>
-  <div>
+  <div class="brand-block">
     <b>Guitar Practice Cloud</b>
     <small>Le cloud qui manque à votre ampli</small>
   </div>
+
+  @if (auth.token()) {
+    <div class="welcome-banner" aria-live="polite">
+      <span class="welcome-label">Salut</span>
+      <span class="user-name">{{ auth.currentUser()?.name || 'Utilisateur' }}</span>
+    </div>
+  }
+
   <nav aria-label="Navigation principale">
     @if (auth.token()) {
       <a routerLink="/tracks">Backing tracks</a>
       <a routerLink="/profile">Profil</a>
+      <div class="theme-switcher" role="group" aria-label="Choix du thème">
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'dark'"
+          (click)="setTheme('dark')"
+        >
+          Dark
+        </button>
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'light'"
+          (click)="setTheme('light')"
+        >
+          Light
+        </button>
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'grey'"
+          (click)="setTheme('grey')"
+        >
+          Grey
+        </button>
+      </div>
       <button type="button" (click)="logout()">Déconnexion</button>
     } @else {
       <a routerLink="/login">Connexion</a>
       <a routerLink="/register">Créer un compte</a>
+      <div class="theme-switcher" role="group" aria-label="Choix du thème">
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'dark'"
+          (click)="setTheme('dark')"
+        >
+          Dark
+        </button>
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'light'"
+          (click)="setTheme('light')"
+        >
+          Light
+        </button>
+        <button
+          type="button"
+          class="theme-button"
+          [class.active]="theme() === 'grey'"
+          (click)="setTheme('grey')"
+        >
+          Grey
+        </button>
+      </div>
     }
   </nav>
 </header>
