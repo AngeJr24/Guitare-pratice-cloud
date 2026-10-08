@@ -19,3 +19,5 @@ Le contrat HTTP ne dépend pas du choix de persistance : le backend fourni utili
 `Page<Track>` contient `items`, `page`, `limit`, `total` et `pages`. Formats acceptés : MP3, WAV, OGG et M4A, 25 Mo maximum.
 
 Erreurs courantes : `400` validation, `401` authentification, `404` ressource, `409` email déjà utilisé.
+
+Pour `POST /tracks`, le statut `201` confirme que le fichier a été écrit dans le stockage du serveur et que ses métadonnées ont été créées. Le backend n’envoie cette réponse qu’après ces opérations. Si la création des métadonnées échoue après l’écriture du fichier, le backend tente de supprimer le fichier et renvoie une erreur ; le frontend ne doit donc considérer l’upload comme réussi qu’après la réponse `201` contenant la piste créée.

@@ -364,27 +364,215 @@ Le build Angular a réussi. Les styles calculés ont été relevés dans le navi
 
 ---
 
-## TP3 — plan de travail à venir
+## TP3 — Fiabilisation et enrichissement du frontend
 
 ### Objectif du TP
-Compléter la partie avancée du projet : amélioration du front, gestion des erreurs, amélioration responsive, éventuellement fonctionnalités bonus comme suppression, filtres, couverture d’album.
+Faire évoluer l’application Angular sans casser les fonctionnalités des TP1 et TP2. Le sujet demande de compléter la suppression d’une piste, d’afficher la progression de l’upload et d’écrire au moins trois tests frontend automatisés. Le backend fourni reste inchangé pour les missions obligatoires.
 
-### Suite attendue
-La finalisation dépendra du sujet exact donné pour le TP3 et des capacités de l’application.
+### Analyse du sujet et du code avant modification
+J’ai consulté :
+- [SUJET_ETUDIANT_TP3.md](SUJET_ETUDIANT_TP3.md)
+- [API_CONTRACT.md](API_CONTRACT.md)
+- [frontend-starter/src/app/shared/services/track.service.ts](frontend-starter/src/app/shared/services/track.service.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.ts](frontend-starter/src/app/components/tracks-page/tracks-page.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.html](frontend-starter/src/app/components/tracks-page/tracks-page.html)
 
-Les axes principaux sont :
-- amélioration de l’ergonomie globale ;
-- finition des cartes audio ;
-- gestion avancée des erreurs ;
-- vérification du flux Network complet ;
-- fonctionnalités bonus non indispensables.
+### Composant et service concernés
 
-### Ce que j’ai déjà assimilé avant d’attaquer le TP3
-- architecture Angular ;
-- service + API + JWT ;
-- pagination et upload ;
-- lecture audio sécurisée ;
-- importance des tests et de la validation.
+- **Composant :** `TracksPageComponent`, dans [frontend-starter/src/app/components/tracks-page/tracks-page.ts](frontend-starter/src/app/components/tracks-page/tracks-page.ts). Il gère l’interaction UI : confirmation, indicateur de suppression, notifications, actualisation de la liste et remise à zéro du lecteur si nécessaire.
+- **Service :** `TrackService`, dans [frontend-starter/src/app/shared/services/track.service.ts](frontend-starter/src/app/shared/services/track.service.ts). Il centralise les requêtes de pistes et expose `delete(id)`, qui exécute `DELETE /api/tracks/:id` avec `HttpClient`.
+- **Séparation respectée :** `TracksPageComponent` appelle `this.service.delete(track.id)` et ne dépend pas de `HttpClient`. Le service est l’unique couche frontend de cette fonctionnalité qui construit et exécute la requête HTTP.
+
+### Missions demandées
+1. **Suppression** : présenter une action sur chaque piste, demander confirmation, éviter les doubles clics, annoncer succès ou échec avec un SnackBar, mettre à jour la liste et gérer les réponses d’une piste déjà supprimée ou appartenant à un autre utilisateur. L’appel HTTP reste dans `TrackService`. L’interface et le guard ne remplacent pas le contrôle du JWT et de la propriété effectué par le backend.
+2. **Progression de l’upload** : exploiter les événements HTTP Angular pour afficher l’état inactif, le pourcentage en cours, la réussite ou l’échec. Les contrôles concernés doivent être désactivés pendant l’envoi. Une requête configurée uniquement pour renvoyer la réponse finale ne fournit pas les événements intermédiaires de progression.
+3. **Tests** : ajouter au moins trois tests frontend ciblés parmi les scénarios du sujet. Ils doivent vérifier des éléments concrets (URL, méthode, paramètres, headers et résultat simulé) et ne pas nécessiter un backend ou MongoDB actif. Des extensions de tests backend sont proposées en option.
+
+### État initial observé — 2026-10-08
+- La suppression est déjà présente : le composant demande une confirmation, appelle `TrackService.delete()` et recharge la liste après succès.
+- L’état initial ne comporte pas de verrouillage spécifique à une piste pendant la suppression ni de notification SnackBar de succès ; l’échec est présenté dans l’état d’erreur de la liste. Ces points restent à compléter et à tester.
+- L’upload possède un état booléen `uploadLoading` qui désactive le bouton Envoyer, mais le service retourne uniquement la réponse finale : il ne publie pas encore les événements permettant de calculer un pourcentage.
+- À l’état initial, le dépôt contenait un test frontend repéré, `track-validation.spec.ts`. Les tests ajoutés au fil des missions ne remplacent pas ce test de validation.
+### Mission 5 — Suppression d’une piste
+
+**Prompt utilisé**
+
+“Allons pour la mission 1, et ajoutons ce qu'il manque en fin de mission on va expliquer pourquoi le guard Angular et l’interface ne suffisent pas à sécuriser la suppression. C’est le backend qui vérifie réellement le JWT et le propriétaire de la piste”
+
+**Actions réalisées**
+
+- Identifié `TracksPageComponent` comme composant responsable de l’interface et `TrackService` comme service responsable de l’appel HTTP. Vérifié que le composant n’utilise pas directement `HttpClient`.
+- Conservé la confirmation existante et l’appel HTTP via `TrackService.delete()`.
+- Ajouté un état `deletingTrackId` pour bloquer les autres suppressions pendant la requête et afficher « Suppression… » sur le bouton concerné.
+- Créé un composant SnackBar Angular autonome, accessible et thématisé avec les variables CSS existantes ; aucune dépendance n’a été ajoutée.
+- Ajouté une notification de succès après suppression et des notifications d’erreur. Le `404` affiche un message commun pour une piste devenue indisponible ou non autorisée, conformément au comportement du backend.
+- Rechargé la liste après une réponse de succès ou d’erreur afin de synchroniser l’interface lorsque la piste a été supprimée ailleurs ou que le backend a répondu après une suppression partielle.
+- Corrigé le cas où la suppression de la dernière piste rend la page courante invalide : la pagination se replace sur la dernière page disponible.
+- Si la piste supprimée était en cours de lecture, révoqué son ObjectURL et réinitialisé le lecteur.
+
+**Fichiers modifiés ou ajoutés**
+
+- [frontend-starter/src/app/components/tracks-page/tracks-page.ts](frontend-starter/src/app/components/tracks-page/tracks-page.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.html](frontend-starter/src/app/components/tracks-page/tracks-page.html)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.css](frontend-starter/src/app/components/tracks-page/tracks-page.css)
+- [frontend-starter/src/app/shared/components/snack-bar/snack-bar.ts](frontend-starter/src/app/shared/components/snack-bar/snack-bar.ts)
+- [frontend-starter/src/app/shared/components/snack-bar/snack-bar.html](frontend-starter/src/app/shared/components/snack-bar/snack-bar.html)
+- [frontend-starter/src/app/shared/components/snack-bar/snack-bar.css](frontend-starter/src/app/shared/components/snack-bar/snack-bar.css)
+
+**Pourquoi le guard et l’interface ne suffisent pas à sécuriser la suppression**
+
+Le guard Angular intervient dans le navigateur : il contrôle la navigation vers des pages et améliore l’expérience utilisateur. L’interface peut aussi masquer ou désactiver un bouton. Mais le code frontend est exécuté sur l’appareil de l’utilisateur et peut être inspecté, modifié ou contourné. Un utilisateur peut envoyer directement une requête HTTP `DELETE` sans passer par le bouton ni par le guard.
+
+La décision de sécurité doit donc être prise par le backend, qui est la seule partie de confiance : son middleware vérifie le JWT reçu, puis la suppression recherche une piste dont l’identifiant correspond **et** dont le champ `ownerId` correspond à l’utilisateur authentifié (`req.auth.sub`). Le client ne peut pas imposer un autre propriétaire. Si aucune piste détenue par cet utilisateur ne correspond, l’API renvoie `404`. Ce statut est identique pour une piste absente et pour une piste appartenant à quelqu’un d’autre, afin de ne pas divulguer l’existence de ressources privées.
+
+**Validation**
+
+- `npm run build` : réussite, bundle Angular généré sans erreur.
+- Test de non-régression `npx vitest run src/app/shared/services/track-validation.spec.ts` : 1 fichier réussi, 4 tests réussis. Ce test ne couvre pas encore la suppression.
+- Diagnostics des fichiers TypeScript concernés : aucune erreur signalée.
+- Vérification navigateur et capture de la requête Network `DELETE` : à effectuer ; aucun test manuel n’est revendiqué à cette étape.
+
+**À retenir pour la restitution**
+
+Le guard et les contrôles UI sont des aides d’ergonomie, pas une frontière de sécurité. L’autorisation effective est vérifiée côté serveur sur chaque requête, à partir du JWT validé et du propriétaire enregistré en base.
+
+### Prochaines missions
+
+- Mission 6 est décrite ci-dessous ; il reste à faire la vérification réelle dans le navigateur.
+- Mission 7 : ajouter au moins trois tests frontend isolés du backend (réalisé dans la section suivante).
+- Vérifier manuellement les flux dans Network et compléter les preuves avant de déclarer le TP3 finalisé.
+
+### Mission 6 — Progression et confirmation d’enregistrement de l’upload
+
+**Demande**
+
+“C'est bien compris, du coup je préfère qu'on fasse toutes les vérifications necessaires pour pouvoir afficher le pourcentage et s'i est à 100% il faudrait que sur le côté serveur on garrantisse que le fichier a été enregistré”
+
+**Vérifications avant modification**
+
+- Le frontend utilise Angular 22. Dans cette version, `HttpClient` utilise Fetch par défaut, et Fetch ne fournit pas d’événement de progression d’envoi. La documentation Angular indique d’activer `withXhr()` pour ce besoin.
+- L’application configure `HttpClient` dans `frontend-starter/src/main.ts` avec l’intercepteur JWT ; elle ne faisait pas de sélection explicite du backend HTTP.
+- `TrackService.upload()` ne demandait que le résultat final de la requête.
+- Côté backend, `multer.diskStorage()` écrit le fichier sur disque avant l’exécution du handler POST. Le handler crée ensuite les métadonnées avec `Track.create()` puis renvoie `201` et la piste créée. Si la création des métadonnées échoue, le backend tente de supprimer le fichier et retourne une erreur.
+- Ainsi, la progression du navigateur décrit le transfert, pas l’enregistrement serveur. L’interface ne considère l’upload réussi et ne montre 100 % qu’après réception de `201` avec une piste possédant un identifiant.
+
+**Actions réalisées**
+
+- Configuré le client HTTP avec `withXhr()` en conservant l’intercepteur d’authentification existant.
+- Changé `TrackService.upload()` pour demander les événements HTTP et `reportUploadProgress`.
+- Mis à jour `TracksPageComponent` pour convertir les événements d’envoi en pourcentage. Le pourcentage visible est plafonné à 99 pendant le transfert, y compris si le navigateur signale déjà que tous les octets ont été envoyés.
+- Le pourcentage passe à 100 et le message de succès n’apparaît qu’après une réponse HTTP `201` avec la piste enregistrée. Une réponse sans confirmation explicite reste une erreur.
+- En l’absence de total fourni par le navigateur, l’interface affiche une barre indéterminée et indique que le pourcentage n’est pas disponible.
+- Désactivé le champ titre, le choix du fichier et le bouton Envoyer pendant la requête.
+- Mis à jour le contrat API pour expliciter la signification du `201` pour l’upload.
+- Ajouté `jsdom` en dépendance de développement et fixé la cible `buildTarget` du builder de test Angular : le script `npm test` n’avait pas d’environnement DOM et supposait une configuration `development` inexistante dans `angular.json`.
+
+**Fichiers modifiés ou ajoutés**
+
+- [frontend-starter/src/main.ts](frontend-starter/src/main.ts)
+- [frontend-starter/src/app/shared/services/track.service.ts](frontend-starter/src/app/shared/services/track.service.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.ts](frontend-starter/src/app/components/tracks-page/tracks-page.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.html](frontend-starter/src/app/components/tracks-page/tracks-page.html)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.css](frontend-starter/src/app/components/tracks-page/tracks-page.css)
+- [frontend-starter/src/app/shared/services/track.service.spec.ts](frontend-starter/src/app/shared/services/track.service.spec.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.spec.ts](frontend-starter/src/app/components/tracks-page/tracks-page.spec.ts)
+- [frontend-starter/angular.json](frontend-starter/angular.json)
+- [frontend-starter/package.json](frontend-starter/package.json)
+- [frontend-starter/package-lock.json](frontend-starter/package-lock.json)
+- [API_CONTRACT.md](API_CONTRACT.md)
+
+**Vérifications automatisées**
+
+- `npm test` après les missions 6 et 7 : 3 fichiers passés, 9 tests passés, dont les tests du service et du composant qui vérifient que 100 % n’est affiché qu’après le `201`.
+- `npm run build` : réussite après implémentation du flux HTTP et des tests des missions 6 et 7.
+- Diagnostics TypeScript/template sur les fichiers concernés : aucune erreur signalée.
+- Vérification réelle du transfert dans le navigateur et capture Network : à effectuer ; les tests ci-dessus simulent les événements HTTP et ne remplacent pas cette vérification.
+- `npm audit` a signalé 10 vulnérabilités dans l’arbre de dépendances (2 modérées, 5 élevées, 3 critiques). `jsdom` n’est pas dans la liste des paquets signalés ; aucune mise à jour générale des dépendances n’a été faite dans le cadre de cette mission.
+
+**À retenir**
+
+Le navigateur sait mesurer l’envoi des octets avec XHR, mais cette mesure ne prouve pas que le serveur a fini d’écrire le fichier ou de créer ses métadonnées. Le `201` de cette API est l’accusé de réception applicatif : le backend ne l’envoie qu’après l’écriture disque et la création de la piste. C’est pour cela que l’UI garde 99 % au maximum pendant le transfert et affiche 100 % seulement après cet accusé de réception.
+
+### Mission 7 — Tests frontend ciblés
+
+**Prompt utilisé**
+
+“Fais moi les test necessaires avec les détails expliquer et nos fichier plan de travail et rapport mis à jour”
+
+**Objectif et approche**
+
+Le sujet demande au minimum trois tests frontend parmi plusieurs scénarios, vérifiant réellement les URL, méthodes, paramètres, headers ou résultats simulés. Les tests ci-dessous isolent le frontend : ils remplacent le service HTTP ou la réponse du service par des doubles de test. Ils n’appellent ni Express ni MongoDB.
+
+Chaque test suit le principe **Préparer – Exécuter – Vérifier** (*Arrange – Act – Assert*) :
+
+1. préparer une piste ou un fichier de test et remplacer les dépendances réseau ;
+2. appeler la méthode du service ou du composant ;
+3. vérifier les arguments de requête et/ou l’état affiché à l’utilisateur.
+
+**Scénarios testés et résultat**
+
+1. **Pagination du service —** dans `track.service.spec.ts`, appelle `TrackService.list(3, 7)` et vérifie l’URL `/api/tracks`, les paramètres `page: 3` et `limit: 7`, ainsi que la page reçue. Cela détecterait une régression où le service oublierait les paramètres ou enverrait de mauvaises valeurs.
+2. **Upload du service —** vérifie le `POST /api/tracks`, le formulaire multipart contenant `audio` et `title`, et les options `observe: 'events'` et `reportUploadProgress: true`. Il injecte ensuite un événement `UploadProgress` puis une réponse `201`, et vérifie leur ordre et le corps de la réponse.
+3. **Progression du composant —** dans `tracks-page.spec.ts`, simule un transfert ayant envoyé 100 % des octets. Le composant doit rester à 99 %, sans message de succès, tant qu’il n’a pas reçu le `201` avec la piste créée. Le test vérifie aussi que le titre est verrouillé pendant l’envoi puis réactivé.
+4. **Échec d’upload —** simule une erreur réseau et vérifie l’affichage du message d’échec, la remise à zéro de la progression et le déverrouillage du formulaire.
+5. **Suppression avec actualisation —** confirme la suppression d’une piste, vérifie que `delete()` reçoit son identifiant, que la liste est demandée à nouveau après la requête et qu’une notification de succès apparaît.
+6. **Validation du fichier —** `track-validation.spec.ts` conserve les quatre tests existants pour fichier valide, fichier absent, type non accepté et taille supérieure à la limite.
+
+Les scénarios pagination, échec d’upload et suppression/actualisation répondent déjà au minimum demandé ; les tests d’upload ajoutent une vérification de progression et de confirmation serveur.
+
+**Fichiers de test**
+
+- [frontend-starter/src/app/shared/services/track.service.spec.ts](frontend-starter/src/app/shared/services/track.service.spec.ts)
+- [frontend-starter/src/app/components/tracks-page/tracks-page.spec.ts](frontend-starter/src/app/components/tracks-page/tracks-page.spec.ts)
+- [frontend-starter/src/app/shared/services/track-validation.spec.ts](frontend-starter/src/app/shared/services/track-validation.spec.ts)
+
+**Résultats**
+
+- `npm test` : 3 fichiers de test réussis, 9 tests réussis.
+- `npm run build` : réussie.
+- `backend/npm test` : 2 tests réussis (health sans dépendance à MongoDB et schémas Mongoose).
+- Les tests ne vérifient pas que le serveur a effectivement écrit un fichier : ils vérifient le comportement du frontend face aux événements et réponses simulés. L’upload réel reste à vérifier dans le navigateur avec la requête `POST`, ses événements et le `201`.
+
+### Évaluation de la capture Network fournie
+
+La capture [captures/Capture d'ecran network d'un upload et d'une suppression.png](captures/Capture%20d'ecran%20network%20d'un%20upload%20et%20d'une%20suppression.png) est une bonne preuve de l’état final : l’interface affiche « Piste ajoutée avec succès » et « Enregistrement confirmé par le serveur : 100 % » ; Network affiche une réponse `201`, une réponse `204` sur une requête nommée par identifiant, puis des réponses `200` pour le rechargement de la liste.
+
+Cette capture étaye fortement le succès de l’upload et de la suppression. Elle ne montre cependant pas les détails des lignes sélectionnées : la méthode HTTP n’est pas affichée dans le tableau, et l’on ne voit pas de pourcentage intermédiaire pendant le transfert. Pour une preuve sans ambiguïté répondant au sujet, compléter avec le panneau Headers/General d’une requête `POST /api/tracks` (méthode et statut `201`), celui du `DELETE /api/tracks/:id` (méthode et statut `204`), et idéalement une capture pendant que la progression est inférieure à 100 %. La capture actuelle ne permet pas d’affirmer que cette progression intermédiaire a été observée manuellement.
+
+### Démarche restante
+1. Compléter la preuve Network avec les méthodes et statuts visibles pour le `DELETE` et le `POST`.
+2. Capturer si possible un état de progression inférieur à 100 % avant l’accusé de réception serveur.
+3. Compléter ce rapport avec les preuves Network détaillées.
+
+### Notions à pouvoir expliquer lors de la restitution
+
+#### Pourquoi les appels HTTP passent par `TrackService`
+
+`TracksPageComponent` s’occupe de l’écran et des interactions : il recueille le fichier et le titre, affiche la progression ou les erreurs, et réagit au résultat. `TrackService` s’occupe de communiquer avec l’API : il construit le `FormData` et utilise `HttpClient` pour envoyer la requête. Cette séparation évite que le composant connaisse les détails réseau, rend le code plus facile à lire et permet de tester le service séparément en simulant les réponses HTTP. Pour l’upload, le composant appelle `this.service.upload(...)`; il ne construit ni n’envoie lui-même la requête.
+
+#### Pourquoi l’autorisation réelle de supprimer une piste est vérifiée côté backend
+
+Le guard Angular protège la navigation dans l’application, et le bouton peut améliorer l’interface en étant masqué ou désactivé. Mais ces contrôles s’exécutent dans le navigateur de l’utilisateur : ils peuvent être contournés, et une requête `DELETE` peut être envoyée directement sans cliquer sur le bouton. Le backend doit donc vérifier le JWT à chaque requête et rechercher une piste correspondant à la fois à l’identifiant demandé et à l’utilisateur authentifié (`ownerId`). Dans ce projet, une piste absente et une piste appartenant à quelqu’un d’autre donnent toutes deux une réponse `404`, pour ne pas révéler l’existence d’une ressource privée.
+
+#### Comment les événements HTTP Angular permettent de calculer le pourcentage d’upload
+
+Le service configure l’upload pour recevoir des événements HTTP et demander les informations de progression. Le backend XHR peut émettre un événement `UploadProgress` avec le nombre d’octets envoyés (`loaded`) et, lorsqu’il est connu, le nombre total (`total`). Le composant calcule alors `loaded / total * 100` et affiche le résultat. Si `total` n’est pas fourni, il ne peut pas calculer un pourcentage fiable : l’écran utilise alors une barre indéterminée.
+
+La progression des octets ne prouve pas à elle seule que le serveur a terminé l’enregistrement. C’est pourquoi le composant reste au plus à 99 % pendant l’envoi et n’affiche 100 % qu’après la réponse `201` contenant la piste créée. Dans ce backend, cette réponse arrive après l’écriture du fichier sur disque et la création de ses métadonnées.
+
+#### Pourquoi les tests HTTP simulés ne nécessitent pas MongoDB
+
+Un test unitaire du frontend ne démarre pas l’API réelle : il remplace ou simule la dépendance HTTP et lui fait produire des événements et réponses contrôlés. Le test peut alors vérifier que le service envoie la bonne URL, la bonne méthode et le bon corps, puis que le composant réagit correctement à une progression, une réussite ou une erreur. Comme aucune requête n’atteint Express, le modèle Mongoose ou MongoDB, aucune base de données n’a besoin de fonctionner. Ces tests vérifient le comportement du frontend, pas le vrai stockage du fichier côté serveur.
+
+#### Ce que vérifie un test d’intercepteur ou de guard
+
+Un test d’intercepteur peut fournir un token simulé, faire une requête et vérifier que l’en-tête `Authorization: Bearer …` est ajouté ; il peut aussi vérifier le comportement prévu pour une réponse `401`. Un test de guard peut simuler un utilisateur connecté ou non et vérifier si la navigation est autorisée ou si une redirection est demandée. Ces tests contrôlent une responsabilité ciblée du frontend ; ils ne prouvent pas que l’API accepte le token ou autorise réellement l’accès à une ressource.
+
+#### Différence entre test unitaire et test d’intégration
+
+Un test unitaire vérifie une petite partie isolée, par exemple `TrackService.upload()` ou la mise à jour du pourcentage par le composant. Les dépendances externes, comme l’API, sont simulées afin que le test soit rapide, répétable et indépendant du réseau ou de MongoDB.
+
+Un test d’intégration vérifie plusieurs parties branchées ensemble, par exemple le navigateur Angular qui envoie une requête au vrai backend et reçoit sa réponse. Il peut vérifier que le contrat fonctionne de bout en bout, mais dépend généralement d’un backend disponible et d’un environnement configuré. Les tests ajoutés ici sont des tests frontend isolés ; ils ne constituent pas une preuve d’intégration de l’upload réel, qui doit encore être vérifié dans le navigateur et l’onglet Network.
 
 ---
 
@@ -414,6 +602,3 @@ L’IA a été utilisée comme aide à l’analyse, à la structuration du proje
 - traces écrites dans ce rapport pour expliquer clairement les actions réalisées.
 
 Cette structure est pensée pour être lisible par un enseignant ou un correcteur : elle montre le chemin intellectuel, les décisions prises, et les preuves concrètes de validation.
-
-
-

@@ -1,0 +1,47 @@
+:host {
+  position: fixed;
+  z-index: 1000;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.snack-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(100%, 38rem);
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--success-border);
+  border-radius: 12px;
+  background: var(--success-bg);
+  color: var(--success-text);
+  box-shadow: 0 12px 32px var(--card-shadow);
+  pointer-events: auto;
+}
+
+.snack-bar.error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.snack-bar button {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.65rem;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .snack-bar {
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+}

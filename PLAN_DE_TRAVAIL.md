@@ -77,11 +77,38 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 
 ## TP3 — État
 
-### À venir
-- Reprendre le sujet TP3.
-- Vérifier les objectifs exacts demandés.
-- Implémenter ou finaliser les améliorations prévues selon le sujet.
-- Préparer la prochaine session sur la base des consignes du TP3 et des validations TP2 déjà faites.
+### Objectif
+Fiabiliser le frontend sans régression des TP1 et TP2, en traitant trois missions :
+- suppression de piste avec confirmation, état dédié, notification et actualisation de la liste ;
+- progression de l’upload avec états inactif, en cours (pourcentage), réussite et échec ;
+- au moins trois tests frontend automatisés, indépendants du backend et de MongoDB.
+
+Le backend fourni reste inchangé pour les missions obligatoires. Consulter `SUJET_ETUDIANT_TP3.md` et `API_CONTRACT.md` avant les modifications.
+
+### Avancement au 2026-10-08
+- Sujet TP3 lu et objectifs clarifiés.
+- La suppression est déjà reliée au bouton de chaque piste et passe par `TrackService.delete()`. Une confirmation et un rechargement de la liste existent.
+- Composant concerné identifié : `TracksPageComponent` gère la confirmation et les états UI ; service concerné : `TrackService` centralise le `DELETE /api/tracks/:id`. Le composant ne dépend pas directement de `HttpClient`.
+- Mission 5 complétée côté code : état de suppression qui bloque les doubles clics, SnackBar Angular de succès/erreur, messages adaptés aux erreurs et rechargement après succès comme après échec. Le rechargement revient aussi à la dernière page valide si la suppression vide la page courante.
+- Le backend renvoie `404` pour une piste supprimée ou non détenue par l’utilisateur ; le message frontend ne distingue volontairement pas ces cas.
+- Compilation Angular après les changements : `npm run build` réussie. Capture combinée fournie et examinée : elle montre l’état final d’upload, les statuts Network `201` et `204`, puis le rechargement de la liste. Les méthodes HTTP ne sont toutefois pas visibles dans la liste des requêtes.
+- À l’état initial du TP3, le frontend ne comportait que `track-validation.spec.ts` avec 4 tests ; ce test de validation audio ne couvre pas la suppression.
+- Mission 6 : `TrackService.upload()` transmet les événements HTTP et demande le suivi de progression. Angular 22 utilisant Fetch par défaut (sans progression d’upload), `provideHttpClient()` est configuré avec `withXhr()`.
+- Le formulaire montre une progression indéterminée si le navigateur ne fournit pas le total ; sinon elle est plafonnée à 99 % pendant le transfert et n’atteint 100 % qu’après le `201` serveur avec l’identifiant de la piste.
+- Le backend écrit d’abord le fichier via Multer/diskStorage, crée ensuite les métadonnées, puis répond `201`. En cas d’échec lors de la création des métadonnées, il tente de nettoyer le fichier et renvoie une erreur. Ce contrat est documenté dans `API_CONTRACT.md`.
+- Les champs du titre et du fichier ainsi que le bouton sont désactivés pendant l’upload.
+- Tests frontend après missions 6 et 7 : `npm test` — 3 fichiers, 9 tests réussis. Les assertions couvrent pagination, upload/progression, erreurs, suppression et actualisation de la liste.
+- Pour rendre le script `npm test` exécutable, ajout de `jsdom` comme dépendance de développement et configuration explicite de sa cible de build Angular.
+- Build Angular après mission 6 : `npm run build` réussie.
+- Capture d’écran du flux réel présente dans `captures/Capture d'ecran network d'un upload et d'une suppression.png`. Elle confirme l’affichage final « Enregistrement confirmé par le serveur : 100 % », un `201`, un `204` et des requêtes de liste ultérieures. Pour rendre la preuve entièrement explicite, garder également une capture du détail des requêtes (méthodes `POST`/`DELETE`) et, si possible, de la progression avant la réponse finale.
+- Mission 7 complétée par des tests pour la pagination (`page` et `limit`), la gestion d’échec d’upload et la suppression confirmée suivie du rechargement. Les tests de progression couvrent en plus les options HTTP et l’attente du `201`.
+- À la première lecture du sujet, aucun changement TP3 ni aucune validation TP3 n’étaient encore déclarés (historique).
+
+### Prochaines étapes
+1. Vérifier dans le navigateur la confirmation, l’état en cours, le SnackBar et la disparition après suppression ; garder une preuve Network.
+2. Vérifier l’upload réel dans le navigateur/Network, dont l’événement de progression et la réponse `201`.
+3. Compléter la preuve Network avec les méthodes `POST`/`DELETE` visibles et si possible une capture de progression avant 100 %.
+4. Compléter le rapport IA avec les résultats et preuves des vérifications manuelles.
 
 ---
 
@@ -97,11 +124,18 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 - Vérification du TP2 dans le navigateur et validé.
 - Ajout d’un petit polish design sur la page de bibliothèque audio.
 
+### Session du 2026-10-08 — TP3
+- Complétion de la suppression (mission 5) avec état d’attente, SnackBar et gestion des réponses API.
+- Ajout du suivi de progression de l’upload (mission 6), confirmation `201` avant 100 % et tests dédiés.
+- Ajout des scénarios frontend de pagination, erreur d’upload et suppression/actualisation (mission 7).
+- Vérification : `npm test` (3 fichiers, 9 tests) et `npm run build` réussis.
+- Capture Network examinée : résultat final d’upload et statuts `201`/`204` visibles ; méthodes et progression intermédiaire à rendre plus explicites.
+- Tests backend `npm test` : 2 tests réussis (health sans MongoDB et schémas Mongoose).
+
 ### Prochaine session
-- Reprendre le sujet TP3.
-- Lire les consignes du TP3 et la structure des améliorations attendues.
-- Appliquer les changements demandés sans casser le TP2 déjà validé.
-- Mettre à jour ce fichier après chaque avancée.
+- Valider manuellement les missions 5 et 6 dans le navigateur et réaliser les captures Network.
+- Exécuter les tests backend disponibles si l’environnement est prêt.
+- Compléter ce plan et le rapport IA avec les preuves obtenues.
 
 ---
 
@@ -114,6 +148,10 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 ### TP2
 - “Explique-moi le TP2, les endpoints backend déjà fournis, et ce qu’il faut compléter côté Angular pour la pagination, l’upload et la lecture audio.”
 
+### TP3
+- “On va bosser aujourd'hui sur le tp3, déjà commence par m'expliquer ce qu'il faut faire, et on va compléter progressivement nos fichier plan de travail et rapport ia modele”
+- “Fais moi les test necessaires avec les détails expliquer et nos fichier plan de travail et rapport mis à jour”
+
 ---
 
 ## Tâches manuelles restantes
@@ -123,7 +161,17 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 - [x] Vérifier la lecture audio en mode Blob / ObjectURL.
 - [ ] Préparer les captures finales si nécessaires.
 - [x] Finaliser le rapport IA TP2 avec les preuves de validation.
-- [ ] Reprendre le TP3 quand le sujet est donné et la prochaine session démarre.
+- [x] Lire le sujet TP3 et relever l’état initial des missions dans le code.
+- [x] Compléter la suppression avec état en cours, notifications et gestion d’erreur.
+- [x] Fournir une capture Network combinant upload et suppression.
+- [ ] Rendre les méthodes `POST`/`DELETE` visibles dans Network et capturer la progression avant la réponse finale.
+- [x] Ajouter l’affichage de progression de l’upload, le verrouillage des contrôles et la confirmation `201` avant 100 %.
+- [ ] Vérifier l’upload réel dans le navigateur/Network et conserver une preuve.
+- [x] Ajouter au moins trois tests frontend ciblés, indépendants du backend.
+- [x] Exécuter `npm test` (3 fichiers, 9 tests) et `npm run build`.
+- [x] Exécuter les tests backend disponibles : 2 tests réussis.
+- [ ] Compléter les preuves Network détaillées de suppression et d’upload progressif.
+- [ ] Compléter le rapport IA TP3 avec les résultats des vérifications manuelles.
 
 ---
 

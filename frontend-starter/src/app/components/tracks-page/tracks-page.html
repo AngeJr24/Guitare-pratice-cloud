@@ -14,14 +14,32 @@
       </label>
       <label class="field">
         <span>Fichier audio</span>
-        <input id="track-file-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,.mp3,.wav,.ogg,.m4a" (change)="choose($event)" />
+        <input id="track-file-input" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,.mp3,.wav,.ogg,.m4a" (change)="choose($event)" [disabled]="uploadLoading()" />
       </label>
+
+      @if (uploadLoading()) {
+        <div class="upload-progress" role="status" aria-live="polite">
+          @if (uploadProgress() !== null) {
+            <label for="track-upload-progress">Envoi du fichier : {{ uploadProgress() }} %</label>
+            <progress id="track-upload-progress" max="100" [value]="uploadProgress() ?? 0"></progress>
+          } @else {
+            <span>Envoi du fichier en cours — progression indisponible.</span>
+            <progress aria-label="Envoi du fichier en cours" max="100"></progress>
+          }
+        </div>
+      }
 
       @if (uploadError()) {
         <p class="message error">{{ uploadError() }}</p>
       }
       @if (uploadSuccess()) {
         <p class="message success">{{ uploadSuccess() }}</p>
+      }
+      @if (!uploadLoading() && uploadProgress() === 100 && uploadSuccess()) {
+        <label class="upload-progress" for="track-upload-progress">
+          Enregistrement confirmé par le serveur : 100 %
+          <progress id="track-upload-progress" max="100" value="100"></progress>
+        </label>
       }
 
       <button type="button" (click)="upload()" [disabled]="uploadLoading() || !file">
@@ -68,8 +86,15 @@
               <button type="button" class="play-button" (click)="play(track)" [attr.aria-label]="'Lire ' + track.title">
                 {{ currentTrackId() === track.id && audioUrl() ? '⏸' : '▶' }}
               </button>
-              <button type="button" class="delete-button" (click)="deleteTrack(track)" [attr.aria-label]="'Supprimer ' + track.title">
-                Supprimer
+              <button
+                type="button"
+                class="delete-button"
+                (click)="deleteTrack(track)"
+                [disabled]="deletingTrackId() !== null"
+                [attr.aria-label]="'Supprimer ' + track.title"
+                [attr.aria-busy]="deletingTrackId() === track.id"
+              >
+                {{ deletingTrackId() === track.id ? 'Suppression…' : 'Supprimer' }}
               </button>
             </div>
           </article>
@@ -104,4 +129,12 @@
       }
     </article>
   </div>
+
+  @if (snackBar(); as notification) {
+    <app-snack-bar
+      [message]="notification.message"
+      [kind]="notification.kind"
+      (dismissed)="dismissSnackBar()"
+    />
+  }
 </section>
