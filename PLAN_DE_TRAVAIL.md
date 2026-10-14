@@ -23,9 +23,9 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 - UI TP2 : l’application fonctionne correctement et la logique est stabilisée.
 
 ### À venir
-- Petit relook visuel / polish design du composant audio.
-- Préparation du TP3 à partir du sujet donné.
-- Mise à jour des captures / traces finales si nécessaire.
+- Terminer, si nécessaire, les preuves Network manquantes du TP3.
+- Vérifier manuellement l’incrément 1 avec MongoDB avant de commencer l’incrément 2.
+- Choisir le nom et l’identité visuelle lorsque le MVP fonctionnel sera avancé.
 
 ---
 
@@ -180,3 +180,130 @@ Le backend fourni reste inchangé pour les missions obligatoires. Consulter `SUJ
 - Le backend ne doit pas être modifié pour les missions principales du TP2.
 - Les preuves de validation passent par build, tests et vérification dans le navigateur.
 - Il faut toujours conserver des traces dans le rapport IA pour garder la logique de travail visible.
+
+---
+
+## Projet libre — Communauté musicale (Scrum)
+
+### Vision produit
+Faire évoluer Guitar Practice Cloud en une communauté ouverte à tous les styles
+de musique, et pas seulement à la guitare. Les membres pourront partager des
+publications textuelles et audio, découvrir celles des autres et échanger autour
+de la musique. Le nom et l’identité visuelle du projet seront choisis plus tard.
+
+### Décisions prises le 2026-10-14
+- Chaque personne doit avoir un compte pour accéder à la communauté et interagir.
+- Les publications pourront contenir du texte, un audio, ou les deux.
+- Une publication pourra être publique ou privée.
+- Les publications publiques seront visibles uniquement par les membres connectés.
+- Une publication privée ne sera visible que par son auteur.
+- Le MVP inclura un fil commun, les likes et les commentaires.
+- Les abonnements, messages privés et playlists sont reportés après le MVP.
+- La bibliothèque privée existante est conservée.
+- La publication audio est reportée au prochain Scrum ; la fonctionnalité texte
+  reste la priorité de l’incrément actuel.
+- Le développement se fera progressivement : une fonctionnalité à la fois, tests
+  et validation avant de commencer la suivante.
+
+### Règles Scrum retenues
+- Découper le produit en incréments verticaux utilisables, de l’API jusqu’à l’écran.
+- Pour chaque incrément : préciser les critères d’acceptation, analyser les fichiers
+  concernés, implémenter uniquement le périmètre choisi, puis tester.
+- Corriger les échecs et faire valider le résultat avant de passer au prochain incrément.
+- Mettre à jour ce plan et le rapport IA après chaque fonctionnalité.
+- Ne pas considérer une fonctionnalité terminée sans ses tests et une vérification
+  du parcours utilisateur correspondant.
+
+### Definition of Done pour chaque fonctionnalité
+- Les critères d’acceptation sont satisfaits.
+- Les règles d’accès et la validation des entrées sont vérifiées côté backend.
+- Les tests ciblés concernés passent ; le build frontend passe si le frontend est touché.
+- Le parcours est vérifié manuellement lorsque cela est pertinent.
+- Les erreurs sont affichées clairement et aucune fonctionnalité existante ne régresse.
+- Le contrat API et le rapport IA sont mis à jour si la fonctionnalité les concerne.
+
+### Backlog produit priorisé
+
+| Ordre | Fonctionnalité | Critères d’acceptation résumés | État |
+|---|---|---|---|
+| 1 | Fil multimédia et publication | Un membre connecté peut publier texte seul, audio seul ou les deux, et consulter un fil paginé avec auteur, date et écoute audio. | Partie texte réalisée ; audio explicitement reporté au prochain Scrum |
+| 2 | Gestion et visibilité des publications texte | L’auteur modifie ou supprime son post et choisit public/privé ; les autres ne voient que les posts publics. | Implémenté ; tests automatisés et parcours navigateur de l’auteur OK ; isolation à confirmer avec deux comptes |
+| 3 | Likes | Un membre peut aimer puis retirer son like ; le compteur et son état sont cohérents. | À faire |
+| 4 | Commentaires | Un membre peut lire et ajouter un commentaire sur un post auquel il a accès. | À faire |
+| 5 | Identité et présentation | Choisir un nom, adapter l’identité de l’application et préparer une démonstration complète. | À faire |
+
+### Incrément 1 — Fil et publications texte (audio reporté au prochain Scrum)
+**Objectif produit corrigé le 2026-10-14 :** un membre connecté peut publier du
+texte seul, un audio seul, ou les deux. Il faut fournir au moins l’un des deux.
+Le fil affiche l’auteur et la date, et permet d’écouter l’audio. L’audio doit
+réutiliser les formats et la limite de 25 Mo déjà appliqués à la bibliothèque.
+Dans le périmètre initial, les posts étaient publics aux membres connectés ;
+la confidentialité a ensuite été ajoutée dans l’incrément 2.
+
+**Déjà implémenté :** modèle MongoDB `Post` lié à l’auteur ; `POST /api/posts`
+pour les textes ; `GET /api/posts` paginé et trié du plus récent au plus ancien ;
+écran Angular de publication textuelle et fil avec auteur/date.
+
+**Correctif de publication (2026-10-14) :** le formulaire Angular associait
+`(ngSubmit)` à une balise `<form>` qui n’était pas reliée à un `FormGroup`. La
+soumission native du navigateur rechargeait la page sans appeler `publish()` ;
+aucun `POST` n’était donc envoyé. La balise est maintenant liée au groupe
+réactif. Le test navigateur a confirmé `POST /api/posts` en `201`, puis le
+rechargement `GET /api/posts` en `200` avec le post affiché.
+
+**Décision de planification :** l’audio des publications ne sera pas développé
+dans le Scrum actuel ; il est reporté au prochain Scrum. Cette décision décale
+la réalisation de l’objectif multimédia, sans changer la vision produit : à
+terme, une publication pourra contenir du texte, un audio, ou les deux.
+
+**Reste à faire au prochain Scrum :** audio associé aux publications, possibilité
+de publier un audio seul, endpoint de lecture audio communautaire et tests
+automatisés et manuels correspondants. Les fonctionnalités de gestion et de
+visibilité du texte sont déjà implémentées dans l’incrément séparé ci-dessous.
+
+**Fichiers principaux :** `backend/src/models/Post.js`, `backend/src/app.js`,
+`backend/test/api.test.js`, `API_CONTRACT.md`,
+`frontend-starter/src/app/components/community-page/`,
+`frontend-starter/src/app/shared/models/community-post.model.ts` et
+`frontend-starter/src/app/shared/services/community.service.ts`.
+
+**Tests automatisés :**
+- `npm --prefix backend test` — 5 tests réussis, dont schéma, authentification
+  obligatoire et refus des textes vides/trop longs ;
+- `npm --prefix frontend-starter test` — 5 fichiers et 12 tests réussis, incluant
+  un test de régression pour la soumission du formulaire ;
+- `npm --prefix frontend-starter run build` — build Angular réussie.
+
+**Vérification manuelle effectuée :** publication d’un texte dans le navigateur,
+réponse `201`, rechargement du fil en `200` et post visible après insertion dans
+la base configurée. Le test a créé le post de diagnostic « Test de publication
+apres correction du formulaire » pour le compte connecté. L’accès non connecté
+est protégé par le guard ; la validation manuelle des autres parcours reste à
+faire.
+
+**Statut de la partie texte :** backend, 5 tests réussis ; frontend, 5 fichiers
+/ 12 tests réussis ; build Angular réussie ; publication navigateur confirmée.
+Cela ne valide pas encore la fonctionnalité audio.
+
+**Prochain Scrum :** cadrer puis implémenter l’audio des publications : texte et
+audio facultatifs (au moins l’un requis), stockage et lecture authentifiée,
+tests ciblés, puis validation du parcours multimédia dans le navigateur.
+
+### Incrément 2 — Modifier, supprimer et choisir la visibilité (texte)
+**Périmètre :** l’auteur peut modifier le texte de son post, le rendre public ou
+privé, et supprimer son post après confirmation. Les autres membres ne voient
+que les posts publics ; chaque auteur voit également ses propres posts privés.
+Les règles de propriété sont contrôlées par l’API, pas seulement par l’interface.
+
+**Tests automatisés :** `npm --prefix backend test` — 9 tests réussis, dont
+authentification, validation de visibilité, filtre du fil selon l’utilisateur
+et vérification que modification/suppression incluent l’auteur dans le filtre
+MongoDB. `npm --prefix frontend-starter test` — 5 fichiers, 16 tests réussis.
+`npm --prefix frontend-starter run build` — réussie.
+
+**Vérification navigateur :** l’auteur a modifié un post, l’a rendu privé puis
+public à nouveau, et a supprimé un post temporaire après confirmation. La
+publication de diagnostic existante a été remise en public ; le post temporaire
+créé pour tester la suppression a bien disparu. Le test avec un second compte
+pour vérifier l’isolation d’un post privé reste à faire. La suppression efface
+le document dans MongoDB et ne peut être annulée.

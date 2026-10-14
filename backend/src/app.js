@@ -8,6 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { User } from "./models/User.js";
 import { Track } from "./models/Track.js";
+import { Post } from "./models/Post.js";
 
 // Les fichiers audio restent sur le disque du serveur dans ce TP.
 // MongoDB ne conserve que leurs métadonnées : titre, nom, taille, etc.
@@ -263,6 +264,135 @@ export function createApp() {
       res.json(user.toPublic());
     } catch (error) {
       console.error("[user] Erreur de mise à jour du profil", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/posts", auth, async (req, res, next) => {
+    try {
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 10));
+      const filter = {
+        $or: [{ visibility: { $ne: "private" } }, { authorId: req.auth.sub }],
+      };
+      const [items, total] = await Promise.all([
+        Post.find(filter)
+          .populate("authorId", "name")
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .lean(),
+        Post.countDocuments(filter),
+      ]);
+
+      res.json({
+        items: items.map((post) => ({
+          id: String(post._id),
+          author: {
+            id: String(post.authorId._id),
+            name: post.authorId.name,
+          },
+          content: post.content,
+          visibility: post.visibility || "public",
+          createdAt: post.createdAt,
+        })),
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      });
+    } catch (error) {
+      console.error("[posts] Erreur de lecture du fil", error);
+      next(error);
+    }
+  });
+
+  app.post("/api/posts", auth, async (req, res, next) => {
+    try {
+      const content =
+        typeof req.body?.content === "string" ? req.body.content.trim() : "";
+      const visibility = req.body?.visibility ?? "public";
+      if (!content || content.length > 2000) {
+        return res.status(400).json({
+          message: "Le texte de la publication doit contenir de 1 à 2000 caractères",
+        });
+      }
+      if (visibility !== "public" && visibility !== "private") {
+        return res.status(400).json({ message: "Visibilité invalide" });
+      }
+
+      const post = await Post.create({
+        authorId: req.auth.sub,
+        content,
+        visibility,
+      });
+      await post.populate("authorId", "name");
+      res.status(201).json({
+        id: post.id,
+        author: {
+          id: post.authorId.id,
+          name: post.authorId.name,
+        },
+        content: post.content,
+        visibility: post.visibility,
+        createdAt: post.createdAt,
+      });
+    } catch (error) {
+      console.error("[posts] Erreur de création", error);
+      next(error);
+    }
+  });
+
+  app.patch("/api/posts/:id", auth, async (req, res, next) => {
+    try {
+      const content =
+        typeof req.body?.content === "string" ? req.body.content.trim() : "";
+      const visibility = req.body?.visibility;
+      if (!content || content.length > 2000) {
+        return res.status(400).json({
+          message: "Le texte de la publication doit contenir de 1 à 2000 caractères",
+        });
+      }
+      if (visibility !== "public" && visibility !== "private") {
+        return res.status(400).json({ message: "Visibilité invalide" });
+      }
+
+      const post = await Post.findOneAndUpdate(
+        { _id: req.params.id, authorId: req.auth.sub },
+        { $set: { content, visibility } },
+        { new: true, runValidators: true },
+      ).populate("authorId", "name");
+
+      if (!post) {
+        return res.status(404).json({ message: "Publication introuvable" });
+      }
+
+      res.json({
+        id: post.id,
+        author: { id: post.authorId.id, name: post.authorId.name },
+        content: post.content,
+        visibility: post.visibility,
+        createdAt: post.createdAt,
+      });
+    } catch (error) {
+      console.error("[posts] Erreur de modification", error);
+      next(error);
+    }
+  });
+
+  app.delete("/api/posts/:id", auth, async (req, res, next) => {
+    try {
+      const post = await Post.findOneAndDelete({
+        _id: req.params.id,
+        authorId: req.auth.sub,
+      });
+      if (!post) {
+        return res.status(404).json({ message: "Publication introuvable" });
+      }
+
+      res.status(204).end();
+    } catch (error) {
+      console.error("[posts] Erreur de suppression", error);
       next(error);
     }
   });

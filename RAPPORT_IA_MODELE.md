@@ -602,3 +602,179 @@ L’IA a été utilisée comme aide à l’analyse, à la structuration du proje
 - traces écrites dans ce rapport pour expliquer clairement les actions réalisées.
 
 Cette structure est pensée pour être lisible par un enseignant ou un correcteur : elle montre le chemin intellectuel, les décisions prises, et les preuves concrètes de validation.
+
+---
+
+## Projet libre — Conception Scrum de la communauté musicale
+
+### Contexte et objectif
+Après les trois TP, le projet a été réorienté vers une communauté musicale
+accessible à tous les passionnés, sans la limiter aux guitaristes. La base
+existante (comptes, authentification, bibliothèque et stockage audio) sera
+conservée et enrichie progressivement. Le nom du projet sera choisi dans une
+étape ultérieure.
+
+### Décisions de produit retenues
+- L’accès à la communauté et aux interactions nécessite un compte.
+- Une publication peut contenir un texte seul, un fichier audio seul, ou les deux ;
+  il faut fournir au moins l’un des deux.
+- Chaque publication pourra être publique ou privée.
+- Un post public est visible aux membres connectés ; un post privé est visible
+  uniquement par son auteur.
+- Le fil commun, les likes et les commentaires font partie du MVP.
+- Les abonnements, les messages privés et les playlists sont hors du premier MVP.
+
+### Organisation du travail
+Le travail suivra une démarche Scrum par incréments fonctionnels. Chaque
+fonctionnalité aura des critères d’acceptation, sera implémentée seule, puis
+testée avant le démarrage de la suivante. Le rapport et le plan de travail
+seront mis à jour après chaque incrément. Une fonctionnalité ne sera déclarée
+terminée qu’après les tests ciblés, le build frontend si nécessaire et la
+vérification de son parcours utilisateur.
+
+### Backlog initial
+1. Fil multimédia : publication texte seul, audio seul ou les deux, avec fil
+   chronologique paginé et écoute.
+2. Choix public/privé et contrôle d’accès correspondant.
+3. Likes et retrait des likes.
+4. Ajout et lecture des commentaires.
+5. Suppression des publications de l’auteur avec nettoyage des données liées.
+6. Choix du nom, identité visuelle et préparation de la démonstration.
+
+### Premier incrément cadré avant développement
+La première fonctionnalité définie est le fil multimédia : un membre connecté
+peut publier du texte seul, un audio seul, ou les deux, et consulter un fil
+paginé avec auteur, date et possibilité d’écoute. La confidentialité, les likes
+et les commentaires seront traités séparément.
+
+### État au 2026-10-14
+Le périmètre produit et l’ordre du backlog ont été définis avec l’assistant IA.
+Au démarrage, une première ébauche trop large a été retirée pour respecter la
+décision de travailler par incréments. Le code TP est resté intact ; une première
+partie textuelle du fil a ensuite été réalisée séparément. Après relecture, le
+périmètre a été corrigé pour inclure aussi l’audio dans ce même incrément.
+
+### Demande de travail avec l’IA
+Proposer des idées adaptées à la base de projet existante, retenir une
+communauté musicale généraliste, puis organiser et implémenter le projet
+progressivement en Scrum, avec tests et mise à jour des documents après chaque
+fonctionnalité.
+
+### Incrément 1 — Fil multimédia et publication (en cours)
+
+#### Objectif et limites
+Permettre aux membres connectés de lire un fil commun chronologique et paginé,
+puis de publier du texte seul, un audio seul, ou les deux. Au moins l’un des
+deux doit être fourni. Une publication affiche son auteur et sa date et permet
+l’écoute de l’audio. Les fichiers audio doivent respecter les formats et la
+limite de 25 Mo déjà utilisés par le projet. La confidentialité, les likes et
+les commentaires ne font pas partie de cet incrément.
+
+#### Partie texte réalisée
+- Ajout du modèle Mongoose `Post`, lié à `User`, avec création et mise à jour
+  automatiques des dates.
+- Ajout de `GET /api/posts` (pagination, ordre antéchronologique et auteur) et
+  `POST /api/posts` pour publier un texte (validation et authentification obligatoire).
+- Mise à jour du contrat dans `API_CONTRACT.md`.
+- Ajout d’une page Angular de fil, d’un formulaire de publication et d’un service
+  HTTP dédié ; la route communautaire devient la destination après connexion et
+  inscription. La bibliothèque TP demeure accessible séparément.
+- Conservation du nom actuel du projet en attendant une décision de branding.
+
+#### Vérifications automatisées de la partie texte
+- Backend : `npm --prefix backend test` — 5 tests réussis. La suite vérifie
+  notamment les règles du schéma, les réponses `401` sans JWT et les réponses
+  `400` pour une publication vide ou trop longue.
+- Frontend initial : `npm --prefix frontend-starter test` — 4 fichiers,
+  11 tests réussis.
+- Build : `npm --prefix frontend-starter run build` — réussie.
+
+#### Problème de soumission observé et correction
+L’utilisateur a signalé que l’envoi ne créait aucun post. Le Network montrait
+des chargements GET, mais aucun `POST /api/posts`. L’inspection a révélé que le
+formulaire HTML utilisait `(ngSubmit)` sans directive `FormGroup` associée.
+Angular ne gérait donc pas la soumission ; le navigateur effectuait sa
+soumission HTML native et rechargeait la page sans appeler la méthode
+`publish()`.
+
+Correction : le formulaire utilise désormais `[formGroup]="form"` et le
+composant possède un `FormGroup` qui contient le contrôle `content`. Un test de
+composant simule une vraie soumission de formulaire et vérifie que le service est
+appelé avec le texte nettoyé.
+
+#### Validation après correctif
+- Frontend : `npm --prefix frontend-starter test` — 5 fichiers, 12 tests réussis.
+- Build : `npm --prefix frontend-starter run build` — réussie.
+- Navigateur : `POST /api/posts` a répondu `201`; le rechargement
+  `GET /api/posts?page=1&limit=10` a répondu `200` et la publication créée
+  apparaissait dans le fil.
+- Le test a ajouté dans la base configurée la publication de diagnostic
+  « Test de publication apres correction du formulaire » pour le compte utilisé.
+
+#### Écart constaté et décision
+La première réalisation accepte uniquement le texte. Après relecture du besoin,
+l’utilisateur a précisé que le partage musical doit aussi accepter un audio seul
+et un audio accompagné de texte, et a confirmé la règle « texte seul, audio seul
+ou les deux ». La partie texte existante est conservée, mais l’incrément 1 n’est
+pas terminé tant que l’audio et l’écoute ne sont pas ajoutés.
+
+#### État et suite
+La publication textuelle fonctionne maintenant dans le navigateur et sa
+persistance est confirmée pour la base configurée. Les tests automatisés
+réussis couvrent actuellement la partie texte et les contrats HTTP associés ;
+ils ne prouvent pas encore l’upload ni la lecture d’un audio dans une
+publication. La prochaine tâche est d’étendre le modèle,
+l’endpoint de publication, le fil et les tests pour l’audio. Il faudra ensuite
+vérifier le parcours complet dans le navigateur avec MongoDB. L’incrément 2
+(confidentialité publique/privée) a depuis été implémenté et est documenté
+ci-dessous.
+
+### Incrément 2 — Gestion des publications textuelles (2026-10-14)
+
+#### Objectif
+Permettre à l’auteur de modifier sa publication, de la supprimer et de choisir
+si elle est publique ou privée. Dans le fil, chaque membre voit les posts
+publics et ses propres posts privés, mais pas les posts privés des autres.
+
+#### Modèle et API
+- Le modèle `Post` possède un champ `visibility`, limité à `public` ou `private`
+  et `public` par défaut. Les anciens documents sans ce champ restent traités
+  comme publics.
+- `POST /api/posts` accepte maintenant `content` et `visibility`.
+- `GET /api/posts` applique côté MongoDB un filtre « visibilité non privée ou
+  auteur = utilisateur du JWT », à la fois pour les résultats et le décompte.
+- `PATCH /api/posts/:id` valide le texte et la visibilité, puis cherche le post
+  par `_id` et `authorId`. Cela empêche de modifier le post d’un autre membre.
+- `DELETE /api/posts/:id` utilise le même filtre de propriété avant de supprimer
+  le document. Une suppression réussie renvoie `204`; un post absent ou non
+  détenu renvoie `404`.
+- L’interface n’affiche Modifier/Supprimer que pour les posts du membre courant,
+  permet l’édition du texte et de la visibilité et demande confirmation avant
+  suppression. Le contrôle backend reste la vraie barrière de sécurité.
+- Le contrat de ces routes est décrit dans `API_CONTRACT.md`.
+
+#### Tests et build
+- Backend : `npm --prefix backend test` — 9 tests réussis. Les tests couvrent la
+  visibilité par défaut, l’authentification, le rejet d’une visibilité invalide,
+  le filtre de lecture et les filtres d’appartenance pour modification/suppression.
+- Frontend : `npm --prefix frontend-starter test` — 5 fichiers, 16 tests réussis.
+  Les tests couvrent le service HTTP et les actions de modification et suppression
+  dans le composant.
+- Build : `npm --prefix frontend-starter run build` — réussie.
+
+Les tests backend de propriété simulent les méthodes Mongoose et vérifient les
+filtres utilisés ; ils ne touchent pas la base configurée. Dans le navigateur,
+l’auteur a modifié une publication, l’a rendue privée puis publique à nouveau,
+et a supprimé un post temporaire après confirmation. Le post de diagnostic
+existant a été conservé et remis en public. L’isolation d’un post privé n’a pas
+encore été vérifiée manuellement avec un second compte. La gestion
+publique/privée du texte est implémentée, mais la publication audio reste à
+réaliser dans un prochain Scrum.
+
+#### Décision de planification — publication audio
+Le 2026-10-14, l’utilisateur a demandé de repousser la fonctionnalité audio
+des publications au prochain Scrum. Le périmètre audio (audio seul ou avec du
+texte, stockage, écoute et tests) reste dans la vision produit, mais n’est pas
+à commencer dans le Scrum actuel. La prochaine étape est de cadrer ce travail
+au début du prochain Scrum, après validation des éléments encore ouverts du
+texte, notamment le contrôle de confidentialité avec un second compte.

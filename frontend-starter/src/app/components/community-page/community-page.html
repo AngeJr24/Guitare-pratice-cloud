@@ -1,0 +1,152 @@
+<section class="community">
+  <div class="hero">
+    <p class="eyebrow">COMMUNAUTÉ MUSICALE</p>
+    <h1>Le fil de la communauté</h1>
+    <p>Partage tes découvertes et tes coups de cœur musicaux.</p>
+  </div>
+
+  <article class="card composer">
+    <h2>Partager une découverte</h2>
+    <form [formGroup]="form" (ngSubmit)="publish()">
+      <label for="post-content">Ton message</label>
+      <textarea
+        id="post-content"
+        [formControl]="content"
+        maxlength="2000"
+        rows="4"
+        placeholder="Qu'est-ce que tu écoutes en ce moment ?"
+      ></textarea>
+      <label for="post-visibility">Visibilité</label>
+      <select id="post-visibility" [formControl]="visibility">
+        <option value="public">Publique — visible par les membres</option>
+        <option value="private">Privée — visible uniquement par moi</option>
+      </select>
+      <div class="composer-footer">
+        <span>{{ content.value.length }} / 2000</span>
+        <button type="submit" [disabled]="publishing() || !content.value.trim()">
+          {{ publishing() ? 'Publication…' : 'Publier' }}
+        </button>
+      </div>
+    </form>
+    @if (publishError()) {
+      <p class="message error" role="alert">{{ publishError() }}</p>
+    }
+    @if (actionError()) {
+      <p class="message error" role="alert">{{ actionError() }}</p>
+    }
+    @if (actionSuccess()) {
+      <p class="message success" role="status">{{ actionSuccess() }}</p>
+    }
+  </article>
+
+  <section class="feed" aria-label="Fil des publications">
+    <div class="feed-heading">
+      <div>
+        <p class="eyebrow">À DÉCOUVRIR</p>
+        <h2>Publications récentes</h2>
+      </div>
+      <button type="button" class="secondary" (click)="load()" [disabled]="loading()">
+        Actualiser
+      </button>
+    </div>
+
+    @if (loading()) {
+      <p class="message info" role="status">Chargement du fil…</p>
+    }
+    @if (loadError()) {
+      <p class="message error" role="alert">{{ loadError() }}</p>
+    }
+    @for (post of posts(); track post.id) {
+      <article class="card post">
+        <div class="post-author">
+          <span class="avatar" aria-hidden="true">
+            {{ post.author.name.charAt(0).toUpperCase() }}
+          </span>
+          <div>
+            <strong>{{ post.author.name }}</strong>
+            <time [attr.datetime]="post.createdAt">{{ post.createdAt | date:'medium' }}</time>
+          </div>
+          <span class="visibility" [class.private]="post.visibility === 'private'">
+            {{ post.visibility === 'private' ? 'Privée' : 'Publique' }}
+          </span>
+          @if (post.author.id === currentUserId()) {
+            <div class="post-management">
+              <button
+                type="button"
+                class="secondary"
+                (click)="startEditing(post)"
+                [disabled]="editingPostId() !== null"
+              >
+                Modifier
+              </button>
+              <button
+                type="button"
+                class="danger"
+                (click)="deletePost(post)"
+                [disabled]="deletingPostId() === post.id"
+              >
+                {{ deletingPostId() === post.id ? 'Suppression…' : 'Supprimer' }}
+              </button>
+            </div>
+          }
+        </div>
+        @if (editingPostId() === post.id) {
+          <form class="edit-form" [formGroup]="editForm" (ngSubmit)="saveEdit(post)">
+            <label [for]="'edit-content-' + post.id">Modifier le texte</label>
+            <textarea
+              [id]="'edit-content-' + post.id"
+              [formControl]="editContent"
+              maxlength="2000"
+              rows="4"
+            ></textarea>
+            <label [for]="'edit-visibility-' + post.id">Visibilité</label>
+            <select
+              [id]="'edit-visibility-' + post.id"
+              [formControl]="editVisibility"
+            >
+              <option value="public">Publique — visible par les membres</option>
+              <option value="private">Privée — visible uniquement par moi</option>
+            </select>
+            <div class="edit-actions">
+              <button type="submit" [disabled]="savingPostId() === post.id">
+                {{ savingPostId() === post.id ? 'Enregistrement…' : 'Enregistrer' }}
+              </button>
+              <button type="button" class="secondary" (click)="cancelEditing()">
+                Annuler
+              </button>
+            </div>
+          </form>
+        } @else {
+          <p class="post-content">{{ post.content }}</p>
+        }
+      </article>
+    } @empty {
+      @if (!loading() && !loadError()) {
+        <article class="card empty-feed">
+          <h3>Le fil est encore calme</h3>
+          <p>Sois le premier à partager une découverte musicale.</p>
+        </article>
+      }
+    }
+
+    <div class="pager">
+      <button
+        type="button"
+        class="secondary"
+        (click)="goToPage(page() - 1)"
+        [disabled]="page() === 1 || loading()"
+      >
+        Précédent
+      </button>
+      <span>Page {{ page() }} / {{ pages() }}</span>
+      <button
+        type="button"
+        class="secondary"
+        (click)="goToPage(page() + 1)"
+        [disabled]="page() >= pages() || loading()"
+      >
+        Suivant
+      </button>
+    </div>
+  </section>
+</section>

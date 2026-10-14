@@ -45,6 +45,7 @@ Ouvrir `http://localhost:4200`. Le compte de démonstration est
 
 ## Documents de travail
 
+- [PROJET.md](PROJET.md) : vision de la communauté musicale, fonctionnement actuel et backlog Scrum ;
 - [SUJET_ETUDIANT_TP1.md](SUJET_ETUDIANT_TP1.md), [SUJET_ETUDIANT_TP2.md](SUJET_ETUDIANT_TP2.md) et [SUJET_ETUDIANT_TP3.md](SUJET_ETUDIANT_TP3.md) : missions des trois séances ;
 - [API_CONTRACT.md](API_CONTRACT.md) : endpoints, authentification et formats échangés ;
 - [RAPPORT_IA_MODELE.md](RAPPORT_IA_MODELE.md) : modèle de compte rendu.
