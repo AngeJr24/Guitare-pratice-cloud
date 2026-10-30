@@ -1,5 +1,20 @@
 import mongoose from "mongoose";
 
+const audioSchema = new mongoose.Schema(
+  {
+    originalName: { type: String, required: true },
+    storedName: { type: String, required: true, select: false },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true, min: 0 },
+    sourceTrackId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Track",
+      default: null,
+    },
+  },
+  { _id: false },
+);
+
 const schema = new mongoose.Schema(
   {
     authorId: {
@@ -10,10 +25,18 @@ const schema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: true,
       trim: true,
-      minlength: 1,
       maxlength: 2000,
+      default: "",
+      validate: {
+        validator(value) {
+          if (this.audio || this.media?.length) {
+            return true;
+          }
+          return typeof value === "string" && value.trim().length > 0;
+        },
+        message: "Le texte de la publication doit contenir de 1 à 2000 caractères",
+      },
     },
     visibility: {
       type: String,
@@ -21,6 +44,15 @@ const schema = new mongoose.Schema(
       default: "public",
       required: true,
     },
+    audio: { type: audioSchema, default: null },
+    media: [
+      {
+        originalName: { type: String, required: true },
+        storedName: { type: String, required: true, select: false },
+        mimeType: { type: String, required: true },
+        size: { type: Number, required: true, min: 0 },
+      },
+    ],
   },
   { timestamps: true },
 );

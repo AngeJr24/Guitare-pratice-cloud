@@ -16,8 +16,24 @@ export class CommunityService {
     });
   }
 
-  create(content: string, visibility: PostVisibility = 'public') {
-    return this.http.post<CommunityPost>('/api/posts', { content, visibility });
+  create(
+    content: string,
+    visibility: PostVisibility = 'public',
+    trackId?: string,
+    media: File[] = [],
+  ) {
+    const body = new FormData();
+    body.append('visibility', visibility);
+    if (content.trim()) {
+      body.append('content', content.trim());
+    }
+    if (trackId) {
+      body.append('trackId', trackId);
+    }
+    for (const file of media) {
+      body.append('media', file);
+    }
+    return this.http.post<CommunityPost>('/api/posts', body);
   }
 
   update(id: string, content: string, visibility: PostVisibility) {
@@ -29,5 +45,15 @@ export class CommunityService {
 
   delete(id: string) {
     return this.http.delete<void>(`/api/posts/${id}`);
+  }
+
+  audio(id: string) {
+    return this.http.get(`/api/posts/${id}/audio`, { responseType: 'blob' });
+  }
+
+  media(postId: string, mediaId: string) {
+    return this.http.get(`/api/posts/${postId}/media/${mediaId}`, {
+      responseType: 'blob',
+    });
   }
 }

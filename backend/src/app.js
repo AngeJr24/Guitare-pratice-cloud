@@ -6,18 +6,22 @@ import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import mongoose from "mongoose";
 import { User } from "./models/User.js";
 import { Track } from "./models/Track.js";
 import { Post } from "./models/Post.js";
+import { Message } from "./models/Message.js";
 
 // Les fichiers audio restent sur le disque du serveur dans ce TP.
 // MongoDB ne conserve que leurs métadonnées : titre, nom, taille, etc.
 const UPLOADS = path.resolve("data/uploads");
+const MEDIA_UPLOADS = path.resolve("data/media");
 
 try {
   // mkdirSync est utilisé au démarrage : l'application doit disposer de ce
   // dossier avant de pouvoir accepter le premier upload.
   fs.mkdirSync(UPLOADS, { recursive: true });
+  fs.mkdirSync(MEDIA_UPLOADS, { recursive: true });
   console.log(`[startup] Dossier des uploads prêt : ${UPLOADS}`);
 } catch (error) {
   console.error("[startup] Impossible de créer le dossier des uploads", error);
@@ -27,8 +31,7 @@ try {
 // Ce secret reste côté serveur. Il ne doit jamais être copié dans Angular.
 const SECRET = process.env.JWT_SECRET || "tp1-development-secret";
 
-// La taille maximale d'un fichier audio est de 25 Mo. Les fichiers plus gros
-// sont refusés par Multer avant d'être écrits sur le disque.
+// Les sons et médias de publication sont limités à 25 Mo par fichier.
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 // Les types MIME autorisés correspondent aux formats demandés dans le sujet.
@@ -119,6 +122,74 @@ const upload = multer({
     return callback(error);
   },
 });
+
+const allowedPostMedia = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+]);
+const postMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) => callback(null, MEDIA_UPLOADS),
+    filename: (_request, file, callback) => {
+      callback(
+        null,
+        crypto.randomUUID() + path.extname(file.originalname).toLowerCase(),
+      );
+    },
+  }),
+  limits: { fileSize: MAX_FILE_SIZE, files: 5 },
+  fileFilter: (_request, file, callback) => {
+    if (allowedPostMedia.has(file.mimetype)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Format média non accepté"));
+  },
+});
+
+function publicPost(post) {
+  const author = post.authorId;
+  return {
+    id: String(post._id ?? post.id),
+    author: {
+      id: String(author?._id ?? author),
+      name: author?.name ?? "",
+    },
+    content: post.content || "",
+    visibility: post.visibility || "public",
+    audio: post.audio
+      ? {
+          id: String(post._id ?? post.id),
+          originalName: post.audio.originalName,
+          mimeType: post.audio.mimeType,
+          size: post.audio.size,
+        }
+      : null,
+    media: (post.media ?? []).map((media) => ({
+      id: String(media._id ?? media.id),
+      originalName: media.originalName,
+      mimeType: media.mimeType,
+      size: media.size,
+    })),
+    createdAt: post.createdAt,
+  };
+}
+
+async function cleanupPostMedia(files = []) {
+  for (const file of files) {
+    try {
+      await fsPromises.unlink(path.join(MEDIA_UPLOADS, file.filename));
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        console.error("[posts] Impossible de supprimer un média incomplet", error);
+        throw error;
+      }
+    }
+  }
+}
 
 /**
  * Construit l'application Express sans ouvrir de port.
@@ -268,6 +339,147 @@ export function createApp() {
     }
   });
 
+  app.get("/api/users", auth, async (req, res, next) => {
+    try {
+      const users = await User.find({ _id: { $ne: req.auth.sub } })
+        .select("name")
+        .sort({ name: 1 })
+        .limit(100)
+        .lean();
+      res.json(
+        users.map((user) => ({
+          id: String(user._id),
+          name: user.name,
+        })),
+      );
+    } catch (error) {
+      console.error("[users] Erreur de lecture des membres", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/messages/unread-counts", auth, async (req, res, next) => {
+    try {
+      const unreadBySender = await Message.aggregate([
+        {
+          $match: {
+            recipientId: new mongoose.Types.ObjectId(req.auth.sub),
+            readAt: null,
+          },
+        },
+        { $group: { _id: "$senderId", count: { $sum: 1 } } },
+      ]);
+      const bySender = unreadBySender.map((item) => ({
+        senderId: String(item._id),
+        count: item.count,
+      }));
+      res.json({
+        total: bySender.reduce((total, item) => total + item.count, 0),
+        bySender,
+      });
+    } catch (error) {
+      console.error("[messages] Erreur de lecture des compteurs non lus", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/messages/:userId", auth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      if (!mongoose.isValidObjectId(userId) || userId === req.auth.sub) {
+        return res.status(400).json({ message: "Destinataire invalide" });
+      }
+      const recipient = await User.findById(userId).select("name").lean();
+      if (!recipient) {
+        return res.status(404).json({ message: "Membre introuvable" });
+      }
+
+      await Message.updateMany(
+        {
+          senderId: userId,
+          recipientId: req.auth.sub,
+          readAt: null,
+        },
+        { $set: { readAt: new Date() } },
+      );
+
+      const messages = await Message.find({
+        $or: [
+          { senderId: req.auth.sub, recipientId: userId },
+          { senderId: userId, recipientId: req.auth.sub },
+        ],
+      })
+        .populate("senderId", "name")
+        .populate("recipientId", "name")
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+
+      res.json({
+        member: { id: String(recipient._id), name: recipient.name },
+        items: messages.reverse().map((message) => ({
+          id: String(message._id),
+          sender: {
+            id: String(message.senderId._id),
+            name: message.senderId.name,
+          },
+          recipient: {
+            id: String(message.recipientId._id),
+            name: message.recipientId.name,
+          },
+          content: message.content,
+          createdAt: message.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error("[messages] Erreur de lecture de la conversation", error);
+      next(error);
+    }
+  });
+
+  app.post("/api/messages/:userId", auth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const content =
+        typeof req.body?.content === "string" ? req.body.content.trim() : "";
+      if (!mongoose.isValidObjectId(userId) || userId === req.auth.sub) {
+        return res.status(400).json({ message: "Destinataire invalide" });
+      }
+      if (!content || content.length > 2000) {
+        return res.status(400).json({
+          message: "Le message doit contenir de 1 à 2000 caractères",
+        });
+      }
+      if (!(await User.exists({ _id: userId }))) {
+        return res.status(404).json({ message: "Membre introuvable" });
+      }
+
+      const message = await Message.create({
+        senderId: req.auth.sub,
+        recipientId: userId,
+        content,
+        readAt: null,
+      });
+      await message.populate([
+        { path: "senderId", select: "name" },
+        { path: "recipientId", select: "name" },
+      ]);
+      res.status(201).json({
+        id: message.id,
+        sender: { id: message.senderId.id, name: message.senderId.name },
+        recipient: {
+          id: message.recipientId.id,
+          name: message.recipientId.name,
+        },
+        content: message.content,
+        createdAt: message.createdAt,
+      });
+    } catch (error) {
+      console.error("[messages] Erreur d’envoi", error);
+      next(error);
+    }
+  });
+
   app.get("/api/posts", auth, async (req, res, next) => {
     try {
       const page = Math.max(1, Number(req.query.page) || 1);
@@ -286,16 +498,7 @@ export function createApp() {
       ]);
 
       res.json({
-        items: items.map((post) => ({
-          id: String(post._id),
-          author: {
-            id: String(post.authorId._id),
-            name: post.authorId.name,
-          },
-          content: post.content,
-          visibility: post.visibility || "public",
-          createdAt: post.createdAt,
-        })),
+        items: items.map(publicPost),
         page,
         limit,
         total,
@@ -307,38 +510,83 @@ export function createApp() {
     }
   });
 
-  app.post("/api/posts", auth, async (req, res, next) => {
+  app.post(
+    "/api/posts",
+    auth,
+    postMediaUpload.array("media", 5),
+    async (req, res, next) => {
     try {
       const content =
         typeof req.body?.content === "string" ? req.body.content.trim() : "";
       const visibility = req.body?.visibility ?? "public";
-      if (!content || content.length > 2000) {
+      const hasContent = content.length > 0;
+      const trackId =
+        typeof req.body?.trackId === "string" ? req.body.trackId.trim() : "";
+      const track = trackId
+        ? await Track.findOne({
+            _id: trackId,
+            ownerId: req.auth.sub,
+            $or: [{ category: "uploaded" }, { category: { $exists: false } }],
+          }).select("+storedName")
+        : null;
+      const hasAudio = Boolean(track);
+      const files = req.files ?? [];
+
+      if (trackId && !track) {
+        await cleanupPostMedia(files);
+        return res.status(404).json({
+          message: "La piste sélectionnée est introuvable dans votre bibliothèque",
+        });
+      }
+      if (!hasContent && !hasAudio && files.length === 0) {
+        await cleanupPostMedia(files);
+        return res.status(400).json({
+          message: "Ajoutez un texte, une piste audio ou un média à la publication",
+        });
+      }
+      if (hasContent && content.length > 2000) {
+        await cleanupPostMedia(files);
         return res.status(400).json({
           message: "Le texte de la publication doit contenir de 1 à 2000 caractères",
         });
       }
       if (visibility !== "public" && visibility !== "private") {
+        await cleanupPostMedia(files);
         return res.status(400).json({ message: "Visibilité invalide" });
       }
 
-      const post = await Post.create({
+      const postData = {
         authorId: req.auth.sub,
-        content,
+        content: content || "",
         visibility,
-      });
+      };
+
+      if (track) {
+        postData.audio = {
+          originalName: track.originalName,
+          storedName: track.storedName,
+          mimeType: track.mimeType,
+          size: track.size,
+          sourceTrackId: track._id,
+        };
+      }
+      postData.media = files.map((file) => ({
+        originalName: file.originalname,
+        storedName: file.filename,
+        mimeType: file.mimetype,
+        size: file.size,
+      }));
+
+      const post = await Post.create(postData);
       await post.populate("authorId", "name");
-      res.status(201).json({
-        id: post.id,
-        author: {
-          id: post.authorId.id,
-          name: post.authorId.name,
-        },
-        content: post.content,
-        visibility: post.visibility,
-        createdAt: post.createdAt,
-      });
+      res.status(201).json(publicPost(post));
     } catch (error) {
       console.error("[posts] Erreur de création", error);
+      try {
+        await cleanupPostMedia(req.files ?? []);
+      } catch (cleanupError) {
+        console.error("[posts] Nettoyage des médias incomplets échoué", cleanupError);
+      }
       next(error);
     }
   });
@@ -348,10 +596,21 @@ export function createApp() {
       const content =
         typeof req.body?.content === "string" ? req.body.content.trim() : "";
       const visibility = req.body?.visibility;
-      if (!content || content.length > 2000) {
+      if (content.length > 2000) {
         return res.status(400).json({
           message: "Le texte de la publication doit contenir de 1 à 2000 caractères",
         });
+      }
+      if (!content) {
+        const existingPost = await Post.findOne({
+          _id: req.params.id,
+          authorId: req.auth.sub,
+        });
+        if (!existingPost || (!existingPost.audio && !existingPost.media?.length)) {
+          return res.status(400).json({
+            message: "Une publication sans média doit contenir un texte",
+          });
+        }
       }
       if (visibility !== "public" && visibility !== "private") {
         return res.status(400).json({ message: "Visibilité invalide" });
@@ -360,22 +619,72 @@ export function createApp() {
       const post = await Post.findOneAndUpdate(
         { _id: req.params.id, authorId: req.auth.sub },
         { $set: { content, visibility } },
-        { new: true, runValidators: true },
+        { new: true },
       ).populate("authorId", "name");
 
       if (!post) {
         return res.status(404).json({ message: "Publication introuvable" });
       }
 
-      res.json({
-        id: post.id,
-        author: { id: post.authorId.id, name: post.authorId.name },
-        content: post.content,
-        visibility: post.visibility,
-        createdAt: post.createdAt,
-      });
+      res.json(publicPost(post));
     } catch (error) {
       console.error("[posts] Erreur de modification", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/posts/:id/audio", auth, async (req, res, next) => {
+    try {
+      const post = await Post.findOne({
+        _id: req.params.id,
+        $or: [{ visibility: { $ne: "private" } }, { authorId: req.auth.sub }],
+      }).select("+audio.storedName");
+
+      if (!post || !post.audio) {
+        return res.status(404).json({ message: "Audio introuvable" });
+      }
+
+      const audioPath = path.join(UPLOADS, post.audio.storedName);
+      res.type(post.audio.mimeType);
+      res.sendFile(audioPath, (error) => {
+        if (error) {
+          console.error(`[posts] Audio non envoyé : ${post.id}`, error);
+          if (!res.headersSent) {
+            next(error);
+          }
+          return;
+        }
+        console.log(`[posts] Audio de publication envoyé : ${post.id}`);
+      });
+    } catch (error) {
+      console.error("[posts] Erreur de lecture audio", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/posts/:id/media/:mediaId", auth, async (req, res, next) => {
+    try {
+      const post = await Post.findOne({
+        _id: req.params.id,
+        $or: [{ visibility: { $ne: "private" } }, { authorId: req.auth.sub }],
+      }).select("+media.storedName");
+      const media = post?.media.find(
+        (item) => String(item._id) === req.params.mediaId,
+      );
+      if (!media) {
+        return res.status(404).json({ message: "Média introuvable" });
+      }
+
+      res.type(media.mimeType);
+      res.setHeader("Content-Disposition", "inline");
+      res.sendFile(path.join(MEDIA_UPLOADS, media.storedName), (error) => {
+        if (error) {
+          console.error(`[posts] Média non envoyé : ${post.id}/${media.id}`, error);
+          if (!res.headersSent) next(error);
+        }
+      });
+    } catch (error) {
+      console.error("[posts] Erreur de lecture du média", error);
       next(error);
     }
   });
@@ -385,9 +694,31 @@ export function createApp() {
       const post = await Post.findOneAndDelete({
         _id: req.params.id,
         authorId: req.auth.sub,
-      });
+      }).select("+audio.storedName +media.storedName");
       if (!post) {
         return res.status(404).json({ message: "Publication introuvable" });
+      }
+
+      if (post.audio?.storedName && !post.audio.sourceTrackId) {
+        const audioPath = path.join(UPLOADS, post.audio.storedName);
+        try {
+          await fsPromises.unlink(audioPath);
+          console.log(`[posts] Fichier audio supprimé : ${audioPath}`);
+        } catch (error) {
+          console.error(`[posts] Fichier audio non supprimé : ${audioPath}`, error);
+          return res.status(500).json({ message: "Publication supprimée, mais fichier audio non supprimé" });
+        }
+      }
+
+      for (const media of post.media ?? []) {
+        try {
+          await fsPromises.unlink(path.join(MEDIA_UPLOADS, media.storedName));
+        } catch (error) {
+          console.error(`[posts] Média non supprimé : ${media.storedName}`, error);
+          return res.status(500).json({
+            message: "Publication supprimée, mais un média n’a pas pu être supprimé",
+          });
+        }
       }
 
       res.status(204).end();
@@ -397,21 +728,40 @@ export function createApp() {
     }
   });
 
+  app.get("/api/tracklists", auth, async (req, res, next) => {
+    try {
+      const tracks = await Track.find({
+        ownerId: req.auth.sub,
+        $or: [{ category: "uploaded" }, { category: { $exists: false } }],
+      })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+      res.json(
+        tracks.map((track) => ({
+          ...track,
+          id: String(track._id),
+          _id: undefined,
+        })),
+      );
+    } catch (error) {
+      console.error("[tracklists] Erreur de lecture des listes", error);
+      next(error);
+    }
+  });
+
   /** Retourne une page des pistes appartenant exclusivement à l'utilisateur. */
   app.get("/api/tracks", auth, async (req, res, next) => {
     try {
       const page = Math.max(1, Number(req.query.page) || 1);
       const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
-      const filter = { ownerId: req.auth.sub };
+      const filter = {
+        ownerId: req.auth.sub,
+        $or: [{ category: "uploaded" }, { category: { $exists: false } }],
+      };
 
       console.log(`[tracks] Lecture page=${page}, limit=${limit}, user=${req.auth.sub}`);
 
-      // La lecture des pistes et le comptage total sont parallélisés pour réduire la latence.
-      // on utilise Promise.all pour exécuter les deux opérations en parallèle. 
-      // Track.find() récupère les pistes de l'utilisateur avec pagination, 
-      // tandis que Track.countDocuments() compte le nombre total de pistes pour cet utilisateur.
-      // Promise.all attend que les deux opérations soient terminées avant de continuer et les résultats
-        // sont stockés dans les variables items et total.
       const [items, total] = await Promise.all([
         Track.find(filter)
           .sort({ createdAt: -1 })
@@ -422,21 +772,12 @@ export function createApp() {
         Track.countDocuments(filter),
       ]);
 
-      // items.map(track) crée un nouveau tableau publicItems en transformant chaque piste pour inclure 
-      // uniquement les champs nécessaires à l'API.
-      // L'identifiant MongoDB (_id) est converti en chaîne de caractères (id) pour être plus lisible 
-      // côté frontend.
-      // Le champ _id (généré par MongoDB) est supprimé pour éviter de l'exposer dans la réponse JSON.
       const publicItems = items.map((track) => ({
         ...track,
         id: String(track._id),
         _id: undefined,
       }));
 
-      console.log(`[tracks] ${publicItems.length} piste(s) envoyée(s) sur ${total}`);
-
-      // envoi de la réponse JSON avec les pistes publiques, la page actuelle, la limite par page, 
-      // le nombre total de pistes et le nombre total de pages.
       res.json({
         items: publicItems,
         page,
@@ -479,6 +820,7 @@ export function createApp() {
           storedName: req.file.filename,
           mimeType: req.file.mimetype,
           size: req.file.size,
+          category: "uploaded",
         });
 
         console.log(`[tracks] Upload enregistré : ${track.id}`);
@@ -486,8 +828,6 @@ export function createApp() {
       } catch (error) {
         console.error("[tracks] Erreur après l'enregistrement du fichier", error);
 
-        // Si MongoDB échoue après l'écriture sur disque, on tente de nettoyer
-        // le fichier orphelin. L'erreur de nettoyage est elle aussi loguée.
         if (req.file) {
           const uploadedPath = path.join(UPLOADS, req.file.filename);
           try {
@@ -538,6 +878,15 @@ export function createApp() {
   /** Supprime la métadonnée et le fichier physique correspondant. */
   app.delete("/api/tracks/:id", auth, async (req, res, next) => {
     try {
+      const postUsingTrack = await Post.exists({
+        "audio.sourceTrackId": req.params.id,
+      });
+      if (postUsingTrack) {
+        return res.status(409).json({
+          message: "Cette piste est liée à une publication. Supprimez d’abord la publication.",
+        });
+      }
+
       const track = await Track.findOneAndDelete({
         _id: req.params.id,
         ownerId: req.auth.sub,
@@ -574,7 +923,8 @@ export function createApp() {
 
     if (
       error instanceof multer.MulterError ||
-      error?.message === "Format audio non accepté"
+      error?.message === "Format audio non accepté" ||
+      error?.message === "Format média non accepté"
     ) {
       return res.status(400).json({ message: error.message });
     }

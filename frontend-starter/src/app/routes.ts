@@ -5,6 +5,7 @@ import { ProfilePageComponent } from './components/profile-page/profile-page';
 import { RegisterPageComponent } from './components/register-page/register-page';
 import { TracksPageComponent } from './components/tracks-page/tracks-page';
 import { CommunityPageComponent } from './components/community-page/community-page';
+import { MessagesPageComponent } from './components/messages-page/messages-page';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'community' },
@@ -12,6 +13,7 @@ export const routes: Routes = [
   { path: 'register', component: RegisterPageComponent },
   { path: 'profile', component: ProfilePageComponent, canActivate: [authGuard] },
   { path: 'community', component: CommunityPageComponent, canActivate: [authGuard] },
+  { path: 'messages', component: MessagesPageComponent, canActivate: [authGuard] },
   { path: 'tracks', component: TracksPageComponent, canActivate: [authGuard] },
   { path: '**', redirectTo: 'community' },
 ];

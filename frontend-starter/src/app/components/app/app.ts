@@ -1,6 +1,8 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
+import { EMPTY, catchError, switchMap, timer } from 'rxjs';
 import { AuthService } from '../../shared/services/auth.service';
+import { MessagingService } from '../../shared/services/messaging.service';
 
 type AppTheme = 'dark' | 'light' | 'grey';
 
@@ -12,12 +14,31 @@ type AppTheme = 'dark' | 'light' | 'grey';
 })
 export class AppComponent {
   readonly auth = inject(AuthService);
+  readonly messaging = inject(MessagingService);
   private readonly router = inject(Router);
   readonly theme = signal<AppTheme>(this.loadTheme());
 
   constructor() {
     this.auth.restoreSession();
     this.applyTheme(this.theme());
+    effect((onCleanup) => {
+      if (!this.auth.token()) {
+        this.messaging.clearUnreadCounts();
+        return;
+      }
+
+      const subscription = timer(0, 15000)
+        .pipe(
+          switchMap(() =>
+            this.messaging.refreshUnreadCounts().pipe(
+              catchError(() => EMPTY),
+            ),
+          ),
+        )
+        .subscribe();
+
+      onCleanup(() => subscription.unsubscribe());
+    });
   }
 
   setTheme(theme: AppTheme): void {

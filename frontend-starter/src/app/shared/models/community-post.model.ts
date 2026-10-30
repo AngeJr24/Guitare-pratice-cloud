@@ -1,5 +1,19 @@
 export type PostVisibility = 'public' | 'private';
 
+export interface CommunityAudio {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface CommunityMedia {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface CommunityPost {
   id: string;
   author: {
@@ -8,5 +22,7 @@ export interface CommunityPost {
   };
   content: string;
   visibility: PostVisibility;
+  audio: CommunityAudio | null;
+  media: CommunityMedia[];
   createdAt: string;
 }

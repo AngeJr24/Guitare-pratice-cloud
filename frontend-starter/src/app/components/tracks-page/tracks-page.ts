@@ -88,7 +88,7 @@ export class TracksPageComponent implements OnDestroy {
   load(): void {
     this.loading.set(true);
     this.listError.set(null);
-    this.service.list(this.page()).subscribe({
+    this.service.list(this.page(), 5).subscribe({
       next: (response) => {
         if (this.page() > response.pages) {
           this.page.set(response.pages);
@@ -165,7 +165,7 @@ export class TracksPageComponent implements OnDestroy {
         serverConfirmedUpload = true;
         this.uploadProgress.set(100);
         console.debug('[TracksPage] Piste enregistrée', track.id);
-        const input = document.getElementById('track-file-input') as HTMLInputElement | null;
+        const input = globalThis.document?.getElementById('track-file-input') as HTMLInputElement | null;
         if (input) {
           input.value = '';
         }
@@ -223,7 +223,7 @@ export class TracksPageComponent implements OnDestroy {
       return;
     }
 
-    const confirmed = window.confirm(`Supprimer la piste "${track.title}" ?`);
+    const confirmed = globalThis.confirm?.(`Supprimer la piste "${track.title}" ?`);
     if (!confirmed) {
       return;
     }

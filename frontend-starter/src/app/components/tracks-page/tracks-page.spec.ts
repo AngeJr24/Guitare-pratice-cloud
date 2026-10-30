@@ -16,6 +16,8 @@ describe('TracksPageComponent upload progress', () => {
     const audio = new File(['audio-data'], 'practice.mp3', { type: 'audio/mpeg' });
     const track: Track = {
       id: 'track-123',
+      ownerId: 'user-1',
+      category: 'uploaded',
       title: 'Practice',
       originalName: audio.name,
       mimeType: audio.type,
@@ -83,6 +85,8 @@ describe('TracksPageComponent upload progress', () => {
   it('deletes the selected track and reloads the list after confirmation', () => {
     const track: Track = {
       id: 'track-123',
+      ownerId: 'user-1',
+      category: 'uploaded',
       title: 'Practice',
       originalName: 'practice.mp3',
       mimeType: 'audio/mpeg',
@@ -97,7 +101,8 @@ describe('TracksPageComponent upload progress', () => {
     const injector = Injector.create({
       providers: [{ provide: TrackService, useValue: service }],
     });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
     const component = runInInjectionContext(injector, () => new TracksPageComponent());
 
     component.deleteTrack(track);

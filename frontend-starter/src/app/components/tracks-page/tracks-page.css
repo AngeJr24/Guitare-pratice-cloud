@@ -118,6 +118,13 @@ button:not(.secondary) {
   gap: 1rem;
 }
 
+.library-description {
+  margin: -0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .track-list {
   display: flex;
   flex-direction: column;

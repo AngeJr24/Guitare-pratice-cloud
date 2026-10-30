@@ -13,8 +13,18 @@
 
   <nav aria-label="Navigation principale">
     @if (auth.token()) {
-      <a routerLink="/community">Communauté</a>
-      <a routerLink="/tracks">Ma bibliothèque</a>
+      <a routerLink="/community">Fil social</a>
+      <a routerLink="/messages" class="messages-nav-link">
+        Messages
+        @if (messaging.totalUnread() > 0) {
+          <span class="unread-badge" aria-label="messages non lus">
+            {{ messaging.totalUnread() > 99 ? '99+' : messaging.totalUnread() }}
+          </span>
+        } @else if (messaging.unreadError()) {
+          <span class="unread-badge unread-error" [attr.title]="messaging.unreadError()">!</span>
+        }
+      </a>
+      <a routerLink="/tracks">Bibliothèque audio</a>
       <a routerLink="/profile">Profil</a>
       <div class="theme-switcher" role="group" aria-label="Choix du thème">
         <button

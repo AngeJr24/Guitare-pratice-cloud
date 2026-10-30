@@ -15,6 +15,38 @@ Il est structuré par TP afin de faciliter la lecture pour le professeur et de m
 
 La règle de travail a été de privilégier une logique de vérification : les idées proposées par l’IA n’étaient acceptées que si elles étaient cohérentes avec le sujet, le contrat API, les conventions du dépôt et les résultats de compilation.
 
+## Mise à jour de session — 2026-10-29 (périmètre actuel)
+
+Le produit devient un réseau social musical qui conserve la bibliothèque audio
+personnelle déjà présente :
+- les membres publient du texte, un morceau déjà importé, des photos ou des
+  vidéos ; les pièces jointes sont stockées côté serveur et servies après
+  vérification de l’authentification et de la visibilité ;
+- la messagerie privée permet de choisir un membre, lire les derniers échanges
+  et lui envoyer un message ;
+- l’ancienne idée de copier/télécharger le son d’un autre membre est abandonnée.
+  Les anciens fichiers et documents éventuellement créés n’ont pas été effacés.
+
+Les modèles, routes Express, services/composants Angular, tests et
+`API_CONTRACT.md` ont été adaptés à ce périmètre. Validation automatisée au
+29 octobre : 21 tests backend et 22 tests frontend réussis ; le build Angular
+est réussi. La vérification manuelle avec deux comptes reste à effectuer.
+
+### Extension — notification des messages non lus
+
+Ajout d’un état `readAt` aux messages, d’un endpoint de compteurs groupés par
+expéditeur et d’une action qui marque comme lus les messages entrants lorsqu’on
+ouvre leur conversation. La navigation affiche le total non lu ; la liste des
+membres affiche le nombre associé à chaque expéditeur. Les compteurs et
+l’échange ouvert sont actualisés toutes les 15 secondes. Le contrat API et les
+tests associés sont actualisés ; 21 tests backend, 22 tests frontend et le
+build Angular passent. Les messages historiques sans champ `readAt` sont
+comptés comme non lus afin de ne pas perdre de notifications déjà reçues. Un
+parcours manuel à deux comptes reste nécessaire.
+
+Les sections antérieures qui décrivent les téléchargements communautaires
+documentent l’historique des essais et ne décrivent plus la version actuelle.
+
 ---
 
 ## TP1 — Architecture, authentification et profil utilisateur
@@ -778,3 +810,78 @@ texte, stockage, écoute et tests) reste dans la vision produit, mais n’est pa
 à commencer dans le Scrum actuel. La prochaine étape est de cadrer ce travail
 au début du prochain Scrum, après validation des éléments encore ouverts du
 texte, notamment le contrôle de confidentialité avec un second compte.
+
+## Historique — 23 octobre 2026 — téléchargements communautaires (idée abandonnée)
+
+Cette section décrit une version intermédiaire retirée du périmètre le
+29 octobre 2026 ; elle n’est plus le comportement actuel du site.
+
+### Besoin
+
+La publication audio doit utiliser un morceau déjà présent dans la bibliothèque
+du membre, et non envoyer un nouveau fichier depuis le formulaire de post. La
+bibliothèque distingue les fichiers importés directement (« Mes tracklists »)
+des copies récupérées depuis la communauté (« Mes téléchargements »). Un
+téléchargement n’est autorisé que depuis un post public et crée une copie
+personnelle de la piste.
+
+### Réalisation
+
+- `CommunityPageComponent` charge les listes du membre, propose un select de
+  morceau existant dans le formulaire, puis envoie le `trackId` avec le texte et
+  la visibilité.
+- Le backend vérifie la propriété du morceau avant de créer la publication. Le
+  post référence la piste déjà stockée : le fichier n’est ni retransmis ni
+  dupliqué au moment de publier.
+- `TracksPageComponent` présente les catégories « Mes tracklists » et « Mes
+  téléchargements », tout en conservant recherche, pagination, écoute et
+  suppression.
+- Le fil propose l’ajout aux téléchargements pour les publications audio
+  publiques des autres membres. La route backend vérifie la visibilité, copie
+  le fichier sur le stockage serveur et crée une piste appartenant au membre.
+  L’opération est idempotente pour un même membre et un même post.
+- L’écoute des posts récupère l’audio avec `HttpClient` afin que l’intercepteur
+  ajoute le JWT ; le lecteur utilise ensuite une URL Blob temporaire, libérée
+  lors de la destruction du composant.
+- Une piste liée à un post ne peut pas être supprimée tant que ce post existe,
+  afin d’éviter une publication sans fichier source. Les copies téléchargées
+  sont autonomes et peuvent rester après suppression du post d’origine.
+- Le contrat API et la documentation produit ont été actualisés.
+
+### Vérifications
+
+- Backend : `npm test` — 12 tests réussis, incluant le contrôle de propriété
+  lors de la publication audio et le refus `403` des téléchargements privés.
+- Frontend : tests ciblés des services et composants track/community — 16 tests
+  réussis.
+- Build Angular : `npm run build` réussie.
+- Le parcours réel dans le navigateur avec deux comptes reste à faire ; les
+  tests automatisés ne remplacent pas cette vérification end-to-end.
+
+### Suite de travail
+
+Tester dans le navigateur une publication issue de la tracklist, l’écoute avec
+JWT, le téléchargement depuis un second compte, le refus d’un post privé, puis
+la présence et l’écoute de la copie dans « Mes téléchargements ». Les
+fonctionnalités suivantes du backlog sont les likes et les commentaires.
+
+### Clarification métier — 23 octobre 2026
+
+Après revue de l’interface, l’utilisateur a précisé la séparation : « Mes
+tracklists » représente exclusivement les pistes importées par le membre, et
+« Mes téléchargements » les fichiers récupérés depuis la communauté. Le
+formulaire ne doit donc pas proposer le téléchargement d’un ami comme source
+audio d’un nouveau post.
+
+Le formulaire demande maintenant explicitement ce que le membre veut publier :
+texte, audio, ou audio accompagné d’un texte. Les contrôles de texte et de
+sélection audio apparaissent selon ce choix. Pour les deux types comportant un
+audio, seules les pistes « uploaded » du compte connecté sont proposées ; le
+backend applique la même restriction et continue d’accepter les uploads
+historiques sans catégorie comme des imports directs.
+
+Le test du composant vérifie à la fois l’exclusion d’un audio téléchargé dans le
+sélecteur et la publication audio seule à partir d’un upload personnel.
+Validation exécutée après ce correctif : backend, 12 tests réussis ; frontend
+ciblé, 18 tests réussis ; build Angular réussie. Le parcours réel dans le
+navigateur reste à confirmer.

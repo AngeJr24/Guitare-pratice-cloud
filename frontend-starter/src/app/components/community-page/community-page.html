@@ -6,7 +6,7 @@
   </div>
 
   <article class="card composer">
-    <h2>Partager une découverte</h2>
+    <h2>Créer une publication</h2>
     <form [formGroup]="form" (ngSubmit)="publish()">
       <label for="post-content">Ton message</label>
       <textarea
@@ -14,16 +14,65 @@
         [formControl]="content"
         maxlength="2000"
         rows="4"
-        placeholder="Qu'est-ce que tu écoutes en ce moment ?"
+        placeholder="Partage une idée, une photo, une vidéo ou un morceau…"
       ></textarea>
+      <span class="character-count">{{ content.value.length }} / 2000</span>
+
+      <label for="community-track-select">Ajouter un morceau de votre bibliothèque (facultatif)</label>
+      <select
+        id="community-track-select"
+        [value]="selectedTrackId()"
+        (change)="selectedTrackId.set($any($event.target).value)"
+        [disabled]="tracklistLoading() || publishing()"
+      >
+        <option value="">Aucun morceau</option>
+        @for (track of availableTracks(); track track.id) {
+          <option [value]="track.id">{{ track.title }} · {{ track.originalName }}</option>
+        }
+      </select>
+      @if (tracklistLoading()) {
+        <p class="tracklist-hint">Chargement de votre bibliothèque…</p>
+      } @else if (availableTracks().length === 0) {
+        <p class="tracklist-hint">
+          Aucun morceau pour le moment. Importez un audio dans
+          <a routerLink="/tracks">Ma bibliothèque</a> pour le joindre à une publication.
+        </p>
+      }
+      @if (tracklistError()) {
+        <p class="message error" role="alert">{{ tracklistError() }}</p>
+      }
+
+      <label for="post-media">Ajouter des photos ou vidéos (5 maximum, 25 Mo chacune)</label>
+      <input
+        id="post-media"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm"
+        multiple
+        (change)="addMediaFiles($event)"
+        [disabled]="publishing() || mediaFiles().length >= 5"
+      />
+      @if (mediaFiles().length) {
+        <ul class="selected-media">
+          @for (file of mediaFiles(); track file.name + $index) {
+            <li>
+              <span>{{ file.name }} · {{ (file.size / 1024 / 1024) | number:'1.1-2' }} Mo</span>
+              <button type="button" class="secondary" (click)="removeMediaFile($index)">Retirer</button>
+            </li>
+          }
+        </ul>
+      }
+
       <label for="post-visibility">Visibilité</label>
       <select id="post-visibility" [formControl]="visibility">
         <option value="public">Publique — visible par les membres</option>
         <option value="private">Privée — visible uniquement par moi</option>
       </select>
       <div class="composer-footer">
-        <span>{{ content.value.length }} / 2000</span>
-        <button type="submit" [disabled]="publishing() || !content.value.trim()">
+        <span>Publication {{ visibility.value === 'public' ? 'publique' : 'privée' }}</span>
+        <button
+          type="submit"
+          [disabled]="publishing() || (!content.value.trim() && !selectedTrackId() && !mediaFiles().length)"
+        >
           {{ publishing() ? 'Publication…' : 'Publier' }}
         </button>
       </div>
@@ -90,6 +139,48 @@
             </div>
           }
         </div>
+        @if (post.audio) {
+          <div class="audio-block">
+            @if (postAudioUrls()[post.id]; as audioUrl) {
+              <audio controls preload="metadata" [src]="audioUrl" class="post-audio"></audio>
+            } @else {
+              <button
+                type="button"
+                class="listen-button"
+                (click)="loadPostAudio(post)"
+                [disabled]="loadingAudioPostIds().includes(post.id)"
+              >
+                {{ loadingAudioPostIds().includes(post.id) ? 'Chargement…' : 'Écouter le morceau' }}
+              </button>
+            }
+            @if (audioErrors()[post.id]) {
+              <p class="message error" role="alert">{{ audioErrors()[post.id] }}</p>
+            }
+            <div class="audio-meta">{{ post.audio.originalName }} • {{ (post.audio.size / 1024 / 1024) | number:'1.1-2' }} Mo</div>
+          </div>
+        }
+        @if (post.media.length) {
+          <div class="post-media">
+            @for (media of post.media; track media.id) {
+              @if (postMediaUrls()[mediaKey(post.id, media.id)]; as mediaUrl) {
+                @if (media.mimeType.startsWith('video/')) {
+                  <video controls preload="metadata" [src]="mediaUrl"></video>
+                } @else {
+                  <img [src]="mediaUrl" [alt]="media.originalName" />
+                }
+              } @else {
+                <button
+                  type="button"
+                  class="secondary"
+                  (click)="loadPostMedia(post, media)"
+                  [disabled]="loadingMediaIds().includes(mediaKey(post.id, media.id))"
+                >
+                  {{ loadingMediaIds().includes(mediaKey(post.id, media.id)) ? 'Chargement…' : 'Afficher ' + media.originalName }}
+                </button>
+              }
+            }
+          </div>
+        }
         @if (editingPostId() === post.id) {
           <form class="edit-form" [formGroup]="editForm" (ngSubmit)="saveEdit(post)">
             <label [for]="'edit-content-' + post.id">Modifier le texte</label>

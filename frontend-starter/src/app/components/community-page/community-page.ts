@@ -1,5 +1,6 @@
-import { DatePipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { DatePipe, DecimalPipe } from '@angular/common';
+import { Component, inject, OnDestroy, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   FormControl,
   FormGroup,
@@ -8,19 +9,23 @@ import {
 } from '@angular/forms';
 import { AuthService } from '../../shared/services/auth.service';
 import {
+  CommunityMedia,
   CommunityPost,
   PostVisibility,
 } from '../../shared/models/community-post.model';
 import { CommunityService } from '../../shared/services/community.service';
+import { Track } from '../../shared/models/track.model';
+import { TrackService } from '../../shared/services/track.service';
 
 @Component({
-  imports: [DatePipe, ReactiveFormsModule],
+  imports: [DatePipe, DecimalPipe, ReactiveFormsModule, RouterLink],
   templateUrl: './community-page.html',
   styleUrl: './community-page.css',
 })
-export class CommunityPageComponent {
+export class CommunityPageComponent implements OnDestroy {
   private readonly service = inject(CommunityService);
   private readonly auth = inject(AuthService);
+  private readonly trackService = inject(TrackService);
 
   readonly posts = signal<CommunityPost[]>([]);
   readonly page = signal(1);
@@ -34,6 +39,16 @@ export class CommunityPageComponent {
   readonly editingPostId = signal<string | null>(null);
   readonly savingPostId = signal<string | null>(null);
   readonly deletingPostId = signal<string | null>(null);
+  readonly availableTracks = signal<Track[]>([]);
+  readonly tracklistLoading = signal(false);
+  readonly tracklistError = signal('');
+  readonly selectedTrackId = signal('');
+  readonly mediaFiles = signal<File[]>([]);
+  readonly postAudioUrls = signal<Record<string, string>>({});
+  readonly loadingAudioPostIds = signal<string[]>([]);
+  readonly audioErrors = signal<Record<string, string>>({});
+  readonly postMediaUrls = signal<Record<string, string>>({});
+  readonly loadingMediaIds = signal<string[]>([]);
   readonly visibility = new FormControl<PostVisibility>('public', {
     nonNullable: true,
   });
@@ -46,7 +61,7 @@ export class CommunityPageComponent {
   });
   readonly content = new FormControl('', {
     nonNullable: true,
-    validators: [Validators.required, Validators.maxLength(2000)],
+    validators: [Validators.maxLength(2000)],
   });
   readonly form = new FormGroup({
     content: this.content,
@@ -60,6 +75,121 @@ export class CommunityPageComponent {
 
   constructor() {
     this.load();
+    this.loadTracklist();
+  }
+
+  ngOnDestroy(): void {
+    Object.values(this.postAudioUrls()).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(this.postMediaUrls()).forEach((url) => URL.revokeObjectURL(url));
+  }
+
+  mediaKey(postId: string, mediaId: string): string {
+    return `${postId}:${mediaId}`;
+  }
+
+  loadPostMedia(post: CommunityPost, media: CommunityMedia): void {
+    const key = this.mediaKey(post.id, media.id);
+    if (this.postMediaUrls()[key] || this.loadingMediaIds().includes(key)) {
+      return;
+    }
+
+    this.loadingMediaIds.update((ids) => [...ids, key]);
+    this.service.media(post.id, media.id).subscribe({
+      next: (blob) => {
+        this.postMediaUrls.update((urls) => ({
+          ...urls,
+          [key]: URL.createObjectURL(blob),
+        }));
+        this.loadingMediaIds.update((ids) => ids.filter((id) => id !== key));
+      },
+      error: (error) => {
+        console.error('[CommunityPage] Chargement du média impossible', error);
+        this.actionError.set(
+          error.error?.message ?? 'Impossible de charger ce média.',
+        );
+        this.loadingMediaIds.update((ids) => ids.filter((id) => id !== key));
+      },
+    });
+  }
+
+  loadPostAudio(post: CommunityPost): void {
+    if (!post.audio || this.postAudioUrls()[post.id] || this.loadingAudioPostIds().includes(post.id)) {
+      return;
+    }
+
+    this.loadingAudioPostIds.update((ids) => [...ids, post.id]);
+    this.audioErrors.update((errors) => {
+      const remaining = { ...errors };
+      delete remaining[post.id];
+      return remaining;
+    });
+    this.service.audio(post.id).subscribe({
+      next: (blob) => {
+        this.postAudioUrls.update((urls) => ({
+          ...urls,
+          [post.id]: URL.createObjectURL(blob),
+        }));
+        this.loadingAudioPostIds.update((ids) => ids.filter((id) => id !== post.id));
+      },
+      error: (error) => {
+        console.error('[CommunityPage] Lecture audio impossible', error);
+        this.audioErrors.update((errors) => ({
+          ...errors,
+          [post.id]: error.error?.message ?? 'Impossible de charger ce morceau.',
+        }));
+        this.loadingAudioPostIds.update((ids) => ids.filter((id) => id !== post.id));
+      },
+    });
+  }
+
+  loadTracklist(): void {
+    this.tracklistLoading.set(true);
+    this.tracklistError.set('');
+    this.trackService.listTracklists().subscribe({
+      next: (tracks) => {
+        this.availableTracks.set(tracks);
+        this.tracklistLoading.set(false);
+      },
+      error: (error) => {
+        console.error('[CommunityPage] Chargement de la bibliothèque impossible', error);
+        this.tracklistError.set(
+          error.error?.message ?? 'Impossible de charger vos pistes.',
+        );
+        this.tracklistLoading.set(false);
+      },
+    });
+  }
+
+  addMediaFiles(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const selected = Array.from(input.files ?? []);
+    const files = [...this.mediaFiles(), ...selected];
+    if (files.length > 5) {
+      this.publishError.set('Une publication peut contenir au maximum 5 photos ou vidéos.');
+      input.value = '';
+      return;
+    }
+
+    const invalidFile = files.find(
+      (file) =>
+        !['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'].includes(file.type) ||
+        file.size > 25 * 1024 * 1024,
+    );
+    if (invalidFile) {
+      this.publishError.set(
+        'Formats acceptés : JPEG, PNG, WebP, GIF, MP4 et WebM (25 Mo maximum par fichier).',
+      );
+      input.value = '';
+      return;
+    }
+
+    this.mediaFiles.set(files);
+    this.publishError.set('');
+    input.value = '';
+  }
+
+  removeMediaFile(index: number): void {
+    this.mediaFiles.update((files) => files.filter((_file, fileIndex) => fileIndex !== index));
   }
 
   load(): void {
@@ -88,18 +218,32 @@ export class CommunityPageComponent {
 
   publish(): void {
     const text = this.content.value.trim();
-    if (!text || text.length > 2000 || this.publishing()) {
+    const trackId = this.selectedTrackId();
+    const hasAudio = this.availableTracks().some((track) => track.id === trackId);
+
+    if (
+      (!text && !hasAudio && this.mediaFiles().length === 0) ||
+      (trackId && !hasAudio) ||
+      text.length > 2000 ||
+      this.publishing()
+    ) {
       this.content.setValue(text);
-      this.content.markAsTouched();
+      if (trackId && !hasAudio) {
+        this.publishError.set('Choisissez un audio importé dans Mes tracklists.');
+      } else {
+        this.publishError.set('Ajoutez un texte, une piste audio ou une photo/vidéo.');
+      }
       return;
     }
 
     this.publishing.set(true);
     this.publishError.set('');
-    this.service.create(text, this.visibility.value).subscribe({
+    this.service.create(text, this.visibility.value, trackId || undefined, this.mediaFiles()).subscribe({
       next: () => {
         this.content.reset('');
         this.visibility.reset('public');
+        this.selectedTrackId.set('');
+        this.mediaFiles.set([]);
         this.page.set(1);
         this.load();
         this.publishing.set(false);
@@ -162,7 +306,7 @@ export class CommunityPageComponent {
   }
 
   deletePost(post: CommunityPost): void {
-    if (!window.confirm('Supprimer définitivement cette publication ?')) {
+    if (!globalThis.confirm?.('Supprimer définitivement cette publication ?')) {
       return;
     }
 

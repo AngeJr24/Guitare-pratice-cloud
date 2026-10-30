@@ -8,24 +8,18 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 ## État actuel
 
 ### Dernière vérification réussie
-- TP1 : authentification et profil validés au niveau code et build.
-- TP2 : validation audio, pagination, upload et lecture audio sécurisée validées côté code et compile Angular.
-- Date de dernière validation : 2026-10-02
-- Commande de preuve exécutée :
-  - `cd "d:\KRA Ange\MASTER 1\Composants Logiciel\Web\AngularM1_Miage_2026_2027_TP123-main\frontend-starter"; npx vitest run src/app/shared/services/track-validation.spec.ts; npm run build`
-- Résultat : 1 test suite OK, 4 tests OK, build Angular OK.
-
-### Vérification manuelle confirmée
-- Pagination : paramètres `page` et `limit` vérifiés dans le flux HTTP.
-- Upload multipart : `audio` et `title` présents dans le `FormData`.
-- Lecture audio : flux protégé avec JWT, réponse `Blob` et `ObjectURL` fonctionnels.
-- Cas invalide : validation frontend détecte les fichiers non acceptés.
-- UI TP2 : l’application fonctionne correctement et la logique est stabilisée.
+- Date de dernière mise à jour : 2026-10-29.
+- Périmètre actuel : bibliothèque audio personnelle, publications texte/photo/vidéo/son et messagerie privée.
+- Le retrait des téléchargements communautaires ne supprime pas les fichiers ni les documents historiques déjà présents.
+- Validation automatisée après notifications : backend 21 tests réussis ; frontend 22 tests réussis.
+- Build Angular : `npm run build` réussi.
+- Vérification manuelle multi-comptes à finaliser avant la démonstration.
 
 ### À venir
-- Terminer, si nécessaire, les preuves Network manquantes du TP3.
-- Vérifier manuellement l’incrément 1 avec MongoDB avant de commencer l’incrément 2.
-- Choisir le nom et l’identité visuelle lorsque le MVP fonctionnel sera avancé.
+- Vérifier l’upload et l’affichage d’images/vidéos dans le navigateur.
+- Tester la notification de messages non lus et le passage au statut lu avec deux comptes.
+- Vérifier les droits de lecture des posts privés et des conversations avec deux comptes.
+- Compléter les captures Network de la démonstration finale.
 
 ---
 
@@ -114,6 +108,21 @@ Le backend fourni reste inchangé pour les missions obligatoires. Consulter `SUJ
 
 ## Journal de travail
 
+### Session du 2026-10-29 — pivot vers un réseau social musical
+- Décision produit : abandonner la copie de sons depuis les publications ; conserver la bibliothèque audio personnelle.
+- Fil social : ajout de photos/vidéos (JPEG, PNG, WebP, GIF, MP4, WebM), jusqu’à 5 fichiers de 25 Mo, stockage disque et accès authentifié.
+- Messagerie : ajout du modèle Message, des routes membres/conversation/envoi et de l’écran Angular correspondant.
+- Retrait des onglets et de la route « Mes téléchargements » ; aucune donnée audio historique n’a été effacée.
+- Contrat API et documents de vision actualisés.
+- Validation : backend `npm test` — 19 tests réussis ; frontend `npm test` — 22 tests réussis ; `npm run build` — réussi.
+- Essais navigateur à deux comptes non réalisés dans cette session.
+
+### Extension — notification des messages non lus
+- Le modèle `Message` ajoute `readAt` ; les messages historiques sans ce champ sont aussi comptés non lus.
+- `GET /api/messages/unread-counts` fournit le total et les nombres par expéditeur ; l’ouverture d’une conversation marque ses messages entrants comme lus.
+- La navigation affiche un badge global et l’écran Messages affiche le compteur par membre ; actualisation toutes les 15 secondes.
+- Validation après cette extension : backend 21 tests, frontend 22 tests et build Angular réussis.
+
 ### Session du 2026-10-02
 - Analyse du TP1 et du TP2.
 - Validation des livrables frontend.
@@ -132,10 +141,21 @@ Le backend fourni reste inchangé pour les missions obligatoires. Consulter `SUJ
 - Capture Network examinée : résultat final d’upload et statuts `201`/`204` visibles ; méthodes et progression intermédiaire à rendre plus explicites.
 - Tests backend `npm test` : 2 tests réussis (health sans MongoDB et schémas Mongoose).
 
-### Prochaine session
-- Valider manuellement les missions 5 et 6 dans le navigateur et réaliser les captures Network.
-- Exécuter les tests backend disponibles si l’environnement est prêt.
-- Compléter ce plan et le rapport IA avec les preuves obtenues.
+### Session du 2026-10-23 — premières publications audio communautaires (approche remplacée)
+- Extension du modèle `Post` avec métadonnées audio (`audio.name`, `type`, `size`, `storageName`) et validation de publication avec texte seul, audio seul ou les deux.
+- Première approche : upload de fichier directement depuis le formulaire du post.
+- Cette approche a été remplacée par la règle métier précisée ensuite : l’audio d’une publication doit être choisi parmi les imports personnels de « Mes tracklists ».
+- Stabilisation du setup test Angular/Vitest du repo : activation du compilateur JIT et sécurisation des accès `document` / `confirm` pour les tests sans navigateur complet.
+
+### Session du 2026-10-23 — tracklist communautaire et téléchargements (idée abandonnée le 2026-10-29)
+- Ajout du concept de `tracklist` divisée en deux catégories : `uploaded` (fichiers directement importés) et `downloaded` (fichiers récupérés depuis la communauté).
+- Backend ajouté : `GET /api/tracklists` renvoie les listes séparées, `GET /api/tracks?scope=uploaded|downloaded` filtre par catégorie, `POST /api/posts/:id/download` ne permet que les posts publics et ajoute automatiquement le son dans la tracklist du téléchargeur.
+- Modèle `Track` enrichi avec `category`, `sourceType`, `downloadedFromPostId` et `downloadedFromUserId` pour distinguer les uploads directs des téléchargements communautaires.
+- Contrôle de sécurité ajouté : les posts privés refusent les téléchargements et renvoient `403` avec un message explicite.
+- Validation exécutée : `cd backend && npm test` et `cd frontend-starter && npx vitest run src/app/shared/services/track.service.spec.ts src/app/components/tracks-page/tracks-page.spec.ts src/app/shared/services/community.service.spec.ts src/app/components/community-page/community-page.spec.ts` → backend 9/9 OK, frontend 12/12 OK.
+
+Cette fonctionnalité a été retirée du périmètre le 2026-10-29. Les lignes
+ci-dessus décrivent l’historique de travail et non le comportement actuel.
 
 ---
 
@@ -226,11 +246,12 @@ de la musique. Le nom et l’identité visuelle du projet seront choisis plus ta
 
 | Ordre | Fonctionnalité | Critères d’acceptation résumés | État |
 |---|---|---|---|
-| 1 | Fil multimédia et publication | Un membre connecté peut publier texte seul, audio seul ou les deux, et consulter un fil paginé avec auteur, date et écoute audio. | Partie texte réalisée ; audio explicitement reporté au prochain Scrum |
+| 1 | Fil social multimédia | Un membre publie texte, piste personnelle, photos ou vidéos ; les droits de lecture sont contrôlés. | Implémenté côté API et Angular ; tests automatisés réussis, parcours navigateur restant |
 | 2 | Gestion et visibilité des publications texte | L’auteur modifie ou supprime son post et choisit public/privé ; les autres ne voient que les posts publics. | Implémenté ; tests automatisés et parcours navigateur de l’auteur OK ; isolation à confirmer avec deux comptes |
-| 3 | Likes | Un membre peut aimer puis retirer son like ; le compteur et son état sont cohérents. | À faire |
-| 4 | Commentaires | Un membre peut lire et ajouter un commentaire sur un post auquel il a accès. | À faire |
-| 5 | Identité et présentation | Choisir un nom, adapter l’identité de l’application et préparer une démonstration complète. | À faire |
+| 3 | Messagerie privée | Choisir un membre, charger l’échange entre les deux participants et envoyer un texte. | Implémenté côté API et Angular ; test multi-comptes restant |
+| 4 | Likes | Un membre peut aimer puis retirer son like ; le compteur et son état sont cohérents. | À faire |
+| 5 | Commentaires | Un membre peut lire et ajouter un commentaire sur un post auquel il a accès. | À faire |
+| 6 | Identité et présentation | Choisir un nom, adapter l’identité de l’application et préparer une démonstration complète. | À faire |
 
 ### Incrément 1 — Fil et publications texte (audio reporté au prochain Scrum)
 **Objectif produit corrigé le 2026-10-14 :** un membre connecté peut publier du
@@ -307,3 +328,20 @@ publication de diagnostic existante a été remise en public ; le post temporair
 créé pour tester la suppression a bien disparu. Le test avec un second compte
 pour vérifier l’isolation d’un post privé reste à faire. La suppression efface
 le document dans MongoDB et ne peut être annulée.
+
+### Session du 2026-10-23 — interface Angular tracklist et téléchargement
+- « Mes tracklists » correspond strictement aux morceaux que le membre a importés lui-même ; « Mes téléchargements » contient les copies récupérées auprès des autres membres.
+- Le formulaire demande le type de publication : texte, audio, ou audio accompagné d’un texte. Pour les deux modes audio, seule une piste issue de « Mes tracklists » est proposée ; les téléchargements d’amis ne peuvent pas être republiés depuis ce sélecteur.
+- La bibliothèque affiche ces deux catégories avec pagination : « Mes tracklists » (uploads directs, y compris les pistes historiques sans catégorie) et « Mes téléchargements ».
+- Une publication audio publique d’un autre membre propose « Ajouter à Mes téléchargements ». L’API crée une copie appartenant au membre, et l’interface indique le résultat. Les publications privées n’affichent pas l’action et l’API refuse quand même la requête avec `403`.
+- L’écoute du son communautaire est chargée via `HttpClient` avec l’intercepteur JWT, puis lue depuis un `ObjectURL`. Les URL sont libérées à la destruction du composant.
+- Le fichier source ne peut pas être supprimé tant qu’une publication le référence (`409`) ; supprimer le post ne supprime pas la piste personnelle. Les copies téléchargées restent autonomes après suppression du post source.
+- Documentation actualisée dans `API_CONTRACT.md` et `PROJET.md`.
+- Validations : backend `npm test` — 12 tests réussis ; frontend ciblé — 18 tests réussis ; `npm run build` — réussie.
+- À faire avant de clore l’incrément : test navigateur authentifié avec deux membres, téléchargement public, refus privé, présence/lecture de la copie dans « Mes téléchargements » et suppression de la publication source.
+
+### Correction de règle métier du 2026-10-23
+- Clarification demandée : les téléchargements faits chez les amis restent dans « Mes téléchargements » et ne sont pas des « Mes tracklists ».
+- Le formulaire de publication présente maintenant le choix explicite « Un texte », « Un audio » ou « Un audio accompagné d’un texte ».
+- Les posts audio ne peuvent utiliser qu’un audio importé par l’auteur dans « Mes tracklists » ; contrôle appliqué dans le frontend et vérifié à nouveau par l’API, avec compatibilité des anciens uploads.
+- Contrat API et libellés des écrans précisés en conséquence.

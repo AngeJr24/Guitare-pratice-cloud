@@ -86,6 +86,30 @@ select {
   font: inherit;
 }
 
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tracklist-hint {
+  margin: -0.2rem 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.tracklist-hint a {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.character-count {
+  justify-self: end;
+  margin-top: -0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -209,6 +233,60 @@ button:focus-visible {
 
 .edit-actions {
   justify-content: flex-end;
+}
+
+.audio-block {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.post-audio {
+  width: 100%;
+  max-width: 100%;
+}
+
+.listen-button {
+  justify-self: start;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.audio-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.selected-media {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.selected-media li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.post-media {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.post-media img,
+.post-media video {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--input-bg);
 }
 
 .post-content {

@@ -15,6 +15,10 @@ export class TrackService {
     });
   }
 
+  listTracklists() {
+    return this.http.get<Track[]>('/api/tracklists');
+  }
+
   upload(file: File, title: string): Observable<HttpEvent<Track>> {
     const body = new FormData();
     body.append('audio', file);

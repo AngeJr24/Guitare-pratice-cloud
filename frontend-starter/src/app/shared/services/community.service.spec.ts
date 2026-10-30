@@ -37,15 +37,17 @@ describe('CommunityService', () => {
     injector.destroy();
   });
 
-  it('sends a text publication to the authenticated posts endpoint', () => {
+  it('sends post text and visibility as multipart form data', () => {
     const post = {
       id: 'post-1',
       author: { id: 'user-1', name: 'Ange' },
       content: 'Nouvelle découverte',
       visibility: 'public' as const,
+      audio: null,
+      media: [],
       createdAt: '2026-10-14T00:00:00.000Z',
     };
-    const postRequest = vi.fn(() => of(post));
+    const postRequest = vi.fn((_url: string, _body: FormData) => of(post));
     const injector = Injector.create({
       providers: [{ provide: HttpClient, useValue: { post: postRequest } }],
     });
@@ -59,11 +61,38 @@ describe('CommunityService', () => {
       result = created;
     });
 
-    expect(postRequest).toHaveBeenCalledWith('/api/posts', {
-      content: 'Nouvelle découverte',
-      visibility: 'public',
-    });
+    expect(postRequest).toHaveBeenCalledWith('/api/posts', expect.any(FormData));
+    const body = postRequest.mock.calls[0]?.[1];
+    expect(body).toBeInstanceOf(FormData);
+    if (!body) {
+      throw new Error('Une publication doit utiliser multipart/form-data.');
+    }
+    expect(body.get('content')).toBe('Nouvelle découverte');
+    expect(body.get('visibility')).toBe('public');
     expect(result).toEqual(post);
+    injector.destroy();
+  });
+
+  it('includes the selected track identifier when publishing audio', () => {
+    const postRequest = vi.fn((_url: string, _body: FormData) => of({} as CommunityPost));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { post: postRequest } }],
+    });
+    const service = runInInjectionContext(
+      injector,
+      () => new CommunityService(),
+    );
+
+    service.create('Découverte', 'private', 'track-42').subscribe();
+
+    const body = postRequest.mock.calls[0]?.[1];
+    expect(body).toBeInstanceOf(FormData);
+    if (!body) {
+      throw new Error('Une publication doit utiliser multipart/form-data.');
+    }
+    expect(body.get('content')).toBe('Découverte');
+    expect(body.get('visibility')).toBe('private');
+    expect(body.get('trackId')).toBe('track-42');
     injector.destroy();
   });
 
@@ -110,6 +139,25 @@ describe('CommunityService', () => {
     service.delete('post-1').subscribe();
 
     expect(deleteRequest).toHaveBeenCalledWith('/api/posts/post-1');
+    injector.destroy();
+  });
+
+  it('loads media through the authenticated API service', () => {
+    const blob = new Blob(['image']);
+    const get = vi.fn(() => of(blob));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { get } }],
+    });
+    const service = runInInjectionContext(
+      injector,
+      () => new CommunityService(),
+    );
+
+    service.media('post-1', 'media-1').subscribe();
+
+    expect(get).toHaveBeenCalledWith('/api/posts/post-1/media/media-1', {
+      responseType: 'blob',
+    });
     injector.destroy();
   });
 });

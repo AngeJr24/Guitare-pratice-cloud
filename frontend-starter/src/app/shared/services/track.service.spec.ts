@@ -28,10 +28,24 @@ describe('TrackService upload progress', () => {
     injector.destroy();
   });
 
+  it('requests the personal audio library without community downloads', () => {
+    const get = vi.fn(() => of([]));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { get } }],
+    });
+    const service = runInInjectionContext(injector, () => new TrackService());
+
+    service.listTracklists().subscribe();
+
+    expect(get).toHaveBeenCalledWith('/api/tracklists');
+    injector.destroy();
+  });
+
   it('requests upload progress and emits progress before the saved track response', () => {
     const audio = new File(['audio-data'], 'practice.mp3', { type: 'audio/mpeg' });
     const track: Track = {
       id: 'track-123',
+      ownerId: 'user-1',
       title: 'Practice',
       originalName: audio.name,
       mimeType: audio.type,

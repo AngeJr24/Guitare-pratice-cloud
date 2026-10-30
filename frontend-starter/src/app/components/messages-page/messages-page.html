@@ -1,0 +1,96 @@
+<section class="messages-page">
+  <header class="page-heading">
+    <p class="eyebrow">RÉSEAU MUSICAL</p>
+    <h1>Messagerie</h1>
+    <p>Échangez en privé avec les membres de la communauté.</p>
+  </header>
+
+  @if (pageError()) {
+    <p class="message error" role="alert">{{ pageError() }}</p>
+  }
+  @if (service.unreadError()) {
+    <p class="message error" role="alert">{{ service.unreadError() }}</p>
+  }
+
+  <div class="messaging-layout">
+    <aside class="card member-list" aria-label="Membres">
+      <h2>Membres</h2>
+      @if (loadingMembers()) {
+        <p>Chargement des membres…</p>
+      }
+      @for (member of members(); track member.id) {
+        <button
+          type="button"
+          class="member-button"
+          [class.selected]="selectedMember()?.id === member.id"
+          (click)="selectMember(member)"
+        >
+          <span class="avatar" aria-hidden="true">{{ member.name.charAt(0).toUpperCase() }}</span>
+          <span>{{ member.name }}</span>
+          @if (service.unreadCount(member.id) > 0) {
+            <span class="unread-badge" [attr.aria-label]="service.unreadCount(member.id) + ' messages non lus'">
+              {{ service.unreadCount(member.id) > 99 ? '99+' : service.unreadCount(member.id) }}
+            </span>
+          }
+        </button>
+      } @empty {
+        @if (!loadingMembers()) {
+          <p>Aucun autre membre pour le moment.</p>
+        }
+      }
+    </aside>
+
+    <section class="card conversation" aria-label="Conversation">
+      @if (selectedMember(); as member) {
+        <header class="conversation-heading">
+          <h2>{{ member.name }}</h2>
+          <span>Conversation privée</span>
+        </header>
+
+        <div class="message-list" aria-live="polite">
+          @if (loadingConversation()) {
+            <p>Chargement de la conversation…</p>
+          }
+          @for (message of messages(); track message.id) {
+            <article
+              class="direct-message"
+              [class.own-message]="message.sender.id === currentUserId()"
+            >
+              <p>{{ message.content }}</p>
+              <time [attr.datetime]="message.createdAt">{{ message.createdAt | date:'short' }}</time>
+            </article>
+          } @empty {
+            @if (!loadingConversation()) {
+              <p class="empty-conversation">Aucun message. Dites bonjour à {{ member.name }}.</p>
+            }
+          }
+        </div>
+
+        <form class="message-composer" [formGroup]="form" (ngSubmit)="send()">
+          <label for="message-content">Votre message</label>
+          <textarea
+            id="message-content"
+            [formControl]="content"
+            maxlength="2000"
+            rows="3"
+            placeholder="Écrire un message…"
+          ></textarea>
+          <div class="composer-footer">
+            <span>{{ content.value.length }} / 2000</span>
+            <button type="submit" [disabled]="sending() || !content.value.trim()">
+              {{ sending() ? 'Envoi…' : 'Envoyer' }}
+            </button>
+          </div>
+          @if (sendError()) {
+            <p class="message error" role="alert">{{ sendError() }}</p>
+          }
+        </form>
+      } @else {
+        <div class="empty-conversation">
+          <h2>Choisissez un membre</h2>
+          <p>Sélectionnez une personne pour ouvrir une conversation privée.</p>
+        </div>
+      }
+    </section>
+  </div>
+</section>

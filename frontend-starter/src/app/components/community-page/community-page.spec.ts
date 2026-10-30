@@ -1,10 +1,10 @@
 import '@angular/compiler';
-import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '../../shared/services/auth.service';
 import { CommunityService } from '../../shared/services/community.service';
+import { TrackService } from '../../shared/services/track.service';
 import { CommunityPageComponent } from './community-page';
 
 describe('CommunityPageComponent', () => {
@@ -12,134 +12,97 @@ describe('CommunityPageComponent', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends the form text when the user submits a publication', async () => {
+  const createHarness = (create = vi.fn(() => of({}))) => {
     const service = {
       list: vi.fn(() =>
         of({ items: [], page: 1, limit: 10, total: 0, pages: 1 }),
       ),
-      create: vi.fn(() =>
-        of({
-          id: 'post-1',
-          author: { id: 'user-1', name: 'Ange' },
-          content: 'Découverte musicale',
-          visibility: 'public' as const,
-          createdAt: '2026-10-14T00:00:00.000Z',
-        }),
-      ),
+      create,
       update: vi.fn(),
       delete: vi.fn(),
+      media: vi.fn(() => of(new Blob())),
     };
-
-    await TestBed.configureTestingModule({
-      imports: [CommunityPageComponent],
+    const injector = Injector.create({
       providers: [
         { provide: CommunityService, useValue: service },
-        {
-          provide: AuthService,
-          useValue: { currentUser: signal({ id: 'user-1', name: 'Ange' }) },
-        },
+        { provide: AuthService, useValue: { currentUser: signal({ id: 'user-1', name: 'Ange' }) } },
+        { provide: TrackService, useValue: { listTracklists: vi.fn(() => of([])) } },
       ],
-    }).compileComponents();
+    });
+    return {
+      component: runInInjectionContext(injector, () => new CommunityPageComponent()),
+      injector,
+      service,
+    };
+  };
 
-    const fixture = TestBed.createComponent(CommunityPageComponent);
-    fixture.detectChanges();
-    const textarea: HTMLTextAreaElement =
-      fixture.nativeElement.querySelector('#post-content');
-    textarea.value = '  Découverte musicale  ';
-    textarea.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
+  it('publishes the text and selected library audio together', () => {
+    const create = vi.fn(() => of({}));
+    const { component, injector, service } = createHarness(create);
+    component.availableTracks.set([{
+      id: 'track-1',
+      ownerId: 'user-1',
+      title: 'Répétition',
+      originalName: 'repetition.mp3',
+      mimeType: 'audio/mpeg',
+      size: 100,
+      createdAt: '2026-10-29T00:00:00.000Z',
+    }]);
+    component.content.setValue('  Nouvelle découverte  ');
+    component.selectedTrackId.set('track-1');
 
-    const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
-    form.dispatchEvent(
-      new Event('submit', { bubbles: true, cancelable: true }),
-    );
-    fixture.detectChanges();
+    component.publish();
 
     expect(service.create).toHaveBeenCalledWith(
-      'Découverte musicale',
+      'Nouvelle découverte',
       'public',
+      'track-1',
+      [],
     );
-    expect(service.list).toHaveBeenCalledTimes(2);
-    expect(textarea.value).toBe('');
-    fixture.destroy();
+    expect(component.content.value).toBe('');
+    injector.destroy();
   });
 
-  it('updates a post with the selected visibility', async () => {
-    const post = {
-      id: 'post-1',
-      author: { id: 'user-1', name: 'Ange' },
-      content: 'Avant',
-      visibility: 'public' as const,
-      createdAt: '2026-10-14T00:00:00.000Z',
-    };
-    const service = {
-      list: vi.fn(() =>
-        of({ items: [post], page: 1, limit: 10, total: 1, pages: 1 }),
-      ),
-      create: vi.fn(),
-      update: vi.fn(() => of({ ...post, content: 'Après', visibility: 'private' as const })),
-      delete: vi.fn(),
-    };
-    const auth = { currentUser: signal({ id: 'user-1', name: 'Ange' }) };
+  it('requires content or an audio/photo/video attachment', () => {
+    const { component, injector, service } = createHarness();
 
-    await TestBed.configureTestingModule({
-      imports: [CommunityPageComponent],
-      providers: [
-        { provide: CommunityService, useValue: service },
-        { provide: AuthService, useValue: auth },
-      ],
-    }).compileComponents();
+    component.publish();
 
-    const fixture = TestBed.createComponent(CommunityPageComponent);
-    const component = fixture.componentInstance;
-    fixture.detectChanges();
-    component.startEditing(post);
-    component.editContent.setValue(' Après ');
-    component.editVisibility.setValue('private');
-    component.saveEdit(post);
-
-    expect(service.update).toHaveBeenCalledWith('post-1', 'Après', 'private');
-    expect(component.posts()[0].content).toBe('Après');
-    expect(component.posts()[0].visibility).toBe('private');
-    expect(component.actionSuccess()).toBe('Publication modifiée.');
-    fixture.destroy();
+    expect(service.create).not.toHaveBeenCalled();
+    expect(component.publishError()).toContain('Ajoutez un texte');
+    injector.destroy();
   });
 
-  it('deletes an owned post after confirmation', async () => {
-    const post = {
-      id: 'post-1',
-      author: { id: 'user-1', name: 'Ange' },
-      content: 'À supprimer',
-      visibility: 'public' as const,
-      createdAt: '2026-10-14T00:00:00.000Z',
+  it('includes selected media files in a publication', () => {
+    const create = vi.fn(() => of({}));
+    const { component, injector, service } = createHarness(create);
+    const photo = new File(['image'], 'photo.png', { type: 'image/png' });
+    component.mediaFiles.set([photo]);
+    component.content.setValue('Mon moment musical');
+
+    component.publish();
+
+    expect(service.create).toHaveBeenCalledWith(
+      'Mon moment musical',
+      'public',
+      undefined,
+      [photo],
+    );
+    expect(component.mediaFiles()).toEqual([]);
+    injector.destroy();
+  });
+
+  it('rejects unsupported media formats and oversized files', () => {
+    const { component, injector } = createHarness();
+    const input = {
+      files: [new File(['data'], 'script.svg', { type: 'image/svg+xml' })],
+      value: 'selected',
     };
-    const service = {
-      list: vi.fn(() =>
-        of({ items: [post], page: 1, limit: 10, total: 1, pages: 1 }),
-      ),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(() => of(undefined)),
-    };
-    const auth = { currentUser: signal({ id: 'user-1', name: 'Ange' }) };
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    component.addMediaFiles({ target: input } as unknown as Event);
 
-    await TestBed.configureTestingModule({
-      imports: [CommunityPageComponent],
-      providers: [
-        { provide: CommunityService, useValue: service },
-        { provide: AuthService, useValue: auth },
-      ],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(CommunityPageComponent);
-    const component = fixture.componentInstance;
-    fixture.detectChanges();
-    component.deletePost(post);
-
-    expect(service.delete).toHaveBeenCalledWith('post-1');
-    expect(component.posts()).toEqual([]);
-    expect(component.actionSuccess()).toBe('Publication supprimée.');
-    fixture.destroy();
+    expect(component.mediaFiles()).toEqual([]);
+    expect(component.publishError()).toContain('Formats acceptés');
+    expect(input.value).toBe('');
+    injector.destroy();
   });
 });

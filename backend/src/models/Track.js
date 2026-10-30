@@ -13,6 +13,12 @@ const schema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    category: {
+      type: String,
+      enum: ["uploaded"],
+      default: "uploaded",
+      index: true,
+    },
     title: { type: String, required: true, trim: true },
     originalName: { type: String, required: true },
     storedName: { type: String, required: true, select: false },
@@ -23,7 +29,7 @@ const schema = new mongoose.Schema(
 );
 
 // Cet index accélère la liste des pistes d'un utilisateur triées par date.
-schema.index({ ownerId: 1, createdAt: -1 });
+schema.index({ ownerId: 1, category: 1, createdAt: -1 });
 
 /**
  * Convertit un document Mongoose en objet sûr pour le frontend.
@@ -34,6 +40,7 @@ schema.methods.toPublic = function () {
   return {
     id: this.id,
     ownerId: String(this.ownerId),
+    category: this.category,
     title: this.title,
     originalName: this.originalName,
     mimeType: this.mimeType,

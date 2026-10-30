@@ -1,8 +1,8 @@
 <section>
   <div class="hero">
-    <p class="eyebrow">MA BIBLIOTHÈQUE</p>
-    <h1>Backing tracks</h1>
-    <p>Importez, retrouvez et écoutez vos morceaux de travail.</p>
+    <p class="eyebrow">MA BIBLIOTHÈQUE MUSICALE</p>
+    <h1>Mes morceaux</h1>
+    <p>Retrouvez vos imports et les découvertes enregistrées depuis la communauté.</p>
   </div>
 
   <div class="grid">
@@ -53,9 +53,12 @@
 
     <article class="card library-card">
       <div class="row">
-        <h2>Mes pistes</h2>
+        <h2>Ma bibliothèque audio</h2>
         <button type="button" class="secondary" (click)="load()" [disabled]="loading()">Actualiser</button>
       </div>
+      <p class="library-description">
+        Les morceaux que vous avez importés dans votre bibliothèque personnelle.
+      </p>
 
       <label class="field filter-field">
         <span>Filtrer par titre</span>
