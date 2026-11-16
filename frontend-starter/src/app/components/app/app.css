@@ -1,5 +1,7 @@
 :host {
-  display: block;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
   color: var(--app-text, #e5e7eb);
 }
 
@@ -122,6 +124,7 @@ nav button {
 }
 
 main {
+  flex: 1;
   padding: 1rem;
 }
 

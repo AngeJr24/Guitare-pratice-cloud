@@ -98,8 +98,13 @@ body.theme-grey {
 }
 
 * { box-sizing: border-box; }
+html {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--app-bg);
   color: var(--app-text);
 }

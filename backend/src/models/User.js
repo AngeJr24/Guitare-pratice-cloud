@@ -1,6 +1,15 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
+const profilePhotoSchema = new mongoose.Schema(
+  {
+    storedName: { type: String, required: true, select: false },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true, min: 0 },
+  },
+  { _id: false },
+);
+
 /*
  * Un schéma Mongoose décrit la forme des documents MongoDB et leurs règles de
  * validation. `timestamps` ajoute automatiquement createdAt et updatedAt.
@@ -17,6 +26,7 @@ const schema = new mongoose.Schema(
     },
     // select:false empêche de renvoyer le hash par défaut dans les requêtes.
     passwordHash: { type: String, required: true, select: false },
+    profilePhoto: { type: profilePhotoSchema, default: null },
   },
   { timestamps: true },
 );
@@ -54,6 +64,12 @@ schema.methods.toPublic = function () {
     id: this.id,
     name: this.name,
     email: this.email,
+    profilePhoto: this.profilePhoto
+      ? {
+          mimeType: this.profilePhoto.mimeType,
+          size: this.profilePhoto.size,
+        }
+      : null,
     createdAt: this.createdAt,
   };
 };

@@ -45,6 +45,14 @@ const schema = new mongoose.Schema(
       required: true,
     },
     audio: { type: audioSchema, default: null },
+    reactions: {
+      type: Map,
+      of: {
+        type: String,
+        enum: ["like", "love", "haha", "wow", "sad", "angry"],
+      },
+      default: {},
+    },
     media: [
       {
         originalName: { type: String, required: true },

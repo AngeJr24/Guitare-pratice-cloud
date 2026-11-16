@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, OnDestroy, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { EMPTY, catchError, switchMap, timer } from 'rxjs';
+import { EMPTY, Subscription, catchError, switchMap, timer } from 'rxjs';
 import { AuthService } from '../../shared/services/auth.service';
 import { MessagingService } from '../../shared/services/messaging.service';
 import { DirectMessage, SocialMember } from '../../shared/models/messaging.model';
@@ -11,13 +11,14 @@ import { DirectMessage, SocialMember } from '../../shared/models/messaging.model
   templateUrl: './messages-page.html',
   styleUrl: './messages-page.css',
 })
-export class MessagesPageComponent {
+export class MessagesPageComponent implements OnDestroy {
   readonly service = inject(MessagingService);
   private readonly auth = inject(AuthService);
 
   readonly members = signal<SocialMember[]>([]);
   readonly selectedMember = signal<SocialMember | null>(null);
   readonly messages = signal<DirectMessage[]>([]);
+  readonly avatarUrls = signal<Record<string, string>>({});
   readonly loadingMembers = signal(false);
   readonly loadingConversation = signal(false);
   readonly sending = signal(false);
@@ -29,9 +30,17 @@ export class MessagesPageComponent {
   });
   readonly form = new FormGroup({ content: this.content });
   readonly currentUserId = () => this.auth.currentUser()?.id ?? '';
+  private readonly avatarRequests = new Subscription();
+  private readonly avatarLoading = new Set<string>();
 
   constructor() {
     this.loadMembers();
+    effect(() => {
+      const user = this.auth.currentUser();
+      if (user?.profilePhoto) {
+        this.loadOwnPhoto(user.id);
+      }
+    });
     effect((onCleanup) => {
       const member = this.selectedMember();
       if (!member) {
@@ -64,6 +73,7 @@ export class MessagesPageComponent {
     this.service.members().subscribe({
       next: (members) => {
         this.members.set(members);
+        members.forEach((member) => this.loadMemberPhoto(member));
         this.loadingMembers.set(false);
       },
       error: (error) => {
@@ -82,6 +92,7 @@ export class MessagesPageComponent {
     this.service.conversation(member.id).subscribe({
       next: (conversation) => {
         this.selectedMember.set(conversation.member);
+        this.loadMemberPhoto(conversation.member);
         this.messages.set(conversation.items);
         this.loadingConversation.set(false);
         this.refreshUnreadCounts();
@@ -100,6 +111,56 @@ export class MessagesPageComponent {
         console.error('[MessagesPage] Actualisation des compteurs impossible', error);
       },
     });
+  }
+
+  private loadOwnPhoto(userId: string): void {
+    if (this.avatarLoading.has(userId) || this.avatarUrls()[userId]) {
+      return;
+    }
+
+    this.avatarLoading.add(userId);
+    this.avatarRequests.add(
+      this.auth.profilePhoto().subscribe({
+        next: (photo) => this.setAvatarUrl(userId, photo),
+        error: (error: unknown) => {
+          this.avatarLoading.delete(userId);
+          console.error('[MessagesPage] Chargement de votre photo impossible', error);
+        },
+      }),
+    );
+  }
+
+  private loadMemberPhoto(member: SocialMember): void {
+    if (!member.profilePhoto || this.avatarLoading.has(member.id) || this.avatarUrls()[member.id]) {
+      return;
+    }
+
+    this.avatarLoading.add(member.id);
+    this.avatarRequests.add(
+      this.auth.memberPhoto(member.id).subscribe({
+        next: (photo) => this.setAvatarUrl(member.id, photo),
+        error: (error: unknown) => {
+          this.avatarLoading.delete(member.id);
+          console.error('[MessagesPage] Chargement de la photo du membre impossible', error);
+        },
+      }),
+    );
+  }
+
+  private setAvatarUrl(userId: string, photo: Blob): void {
+    this.avatarLoading.delete(userId);
+    const photoUrl = URL.createObjectURL(photo);
+    const previousUrl = this.avatarUrls()[userId];
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+    }
+    this.avatarUrls.update((urls) => ({ ...urls, [userId]: photoUrl }));
+  }
+
+  ngOnDestroy(): void {
+    this.avatarRequests.unsubscribe();
+    Object.values(this.avatarUrls()).forEach((photoUrl) => URL.revokeObjectURL(photoUrl));
+    this.avatarUrls.set({});
   }
 
   send(): void {

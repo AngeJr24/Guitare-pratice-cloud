@@ -8,14 +8,16 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 ## État actuel
 
 ### Dernière vérification réussie
-- Date de dernière mise à jour : 2026-10-29.
-- Périmètre actuel : bibliothèque audio personnelle, publications texte/photo/vidéo/son et messagerie privée.
+- Date de dernière mise à jour : 2026-11-17.
+- Périmètre actuel : bibliothèque audio personnelle, profil avec photo, avatars dans la messagerie et le fil social, publications texte/photo/vidéo et messagerie privée.
 - Le retrait des téléchargements communautaires ne supprime pas les fichiers ni les documents historiques déjà présents.
-- Validation automatisée après notifications : backend 21 tests réussis ; frontend 22 tests réussis.
+- Validation automatisée : backend 30 tests réussis ; frontend 40 tests réussis.
 - Build Angular : `npm run build` réussi.
 - Vérification manuelle multi-comptes à finaliser avant la démonstration.
 
 ### À venir
+- Vérifier dans le navigateur l’ajout, le remplacement et la suppression de la photo de profil.
+- Vérifier l’affichage des avatars dans les conversations et les publications avec deux comptes.
 - Vérifier l’upload et l’affichage d’images/vidéos dans le navigateur.
 - Tester la notification de messages non lus et le passage au statut lu avec deux comptes.
 - Vérifier les droits de lecture des posts privés et des conversations avec deux comptes.

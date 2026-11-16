@@ -1,1 +1,114 @@
-:host { display: block; max-width: 700px; margin: 0 auto; }
+:host {
+  display: block;
+  max-width: 700px;
+  margin: 0 auto;
+  color: var(--app-text);
+}
+
+.profile-photo-section {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin: 1.5rem 0;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--input-border);
+}
+
+.profile-photo {
+  display: grid;
+  flex: 0 0 7rem;
+  width: 7rem;
+  height: 7rem;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 2.5rem;
+  font-weight: 800;
+}
+
+.profile-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.profile-photo-actions h2,
+.profile-photo-actions p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.profile-photo-actions p {
+  color: var(--muted);
+}
+
+.photo-upload-button,
+.photo-delete-button,
+form button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.6rem 0.9rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-strong);
+  color: var(--button-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.photo-upload-button input {
+  display: none;
+}
+
+.photo-delete-button {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+button:disabled,
+.photo-upload-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+form {
+  margin-top: 1.25rem;
+}
+
+.profile-message {
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+}
+
+.error {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.success {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+@media (max-width: 520px) {
+  .profile-photo-section {
+    align-items: flex-start;
+  }
+
+  .profile-photo {
+    flex-basis: 5rem;
+    width: 5rem;
+    height: 5rem;
+  }
+}

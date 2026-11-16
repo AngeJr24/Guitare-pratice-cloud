@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { createApp } from "../src/app.js";
 import { User } from "../src/models/User.js";
 import { Track } from "../src/models/Track.js";
 import { Post } from "../src/models/Post.js";
+import { Comment } from "../src/models/Comment.js";
 import { Message } from "../src/models/Message.js";
 
 let server, base;
@@ -45,6 +47,22 @@ test("schémas Mongoose et relation", () => {
   
   assert.equal(t.title, "Blues");
   assert.equal(Track.schema.path("ownerId").options.ref, "User");
+
+  const profileUser = new User({
+    name: "Profil",
+    email: "profil@example.com",
+    password: "12345678",
+    profilePhoto: {
+      storedName: "private-name.png",
+      mimeType: "image/png",
+      size: 42,
+    },
+  });
+  assert.deepEqual(profileUser.toPublic().profilePhoto, {
+    mimeType: "image/png",
+    size: 42,
+  });
+  assert.equal(profileUser.toPublic().profilePhoto.storedName, undefined);
 });
 
 test("schéma Post requiert un texte de 1 à 2000 caractères et un auteur", async () => {
@@ -79,6 +97,27 @@ test("schéma Post autorise un média sans texte", async () => {
 
   await post.validate();
   assert.equal(post.media.length, 1);
+});
+
+test("schéma Comment et réactions de publication valident leurs données", async () => {
+  const comment = new Comment({
+    postId: new mongoose.Types.ObjectId(),
+    authorId: new mongoose.Types.ObjectId(),
+    content: "  Très belle photo  ",
+  });
+  await comment.validate();
+  assert.equal(comment.content, "Très belle photo");
+
+  const post = new Post({
+    authorId: new mongoose.Types.ObjectId(),
+    content: "Publication",
+    reactions: { "user-1": "love" },
+  });
+  await post.validate();
+  assert.equal(post.reactions.get("user-1"), "love");
+
+  post.reactions.set("user-2", "unknown");
+  await assert.rejects(post.validate());
 });
 
 test("schéma Message exige un auteur, un destinataire et un texte", async () => {
@@ -290,6 +329,290 @@ test("le fil retourne les posts publics et ceux de l'utilisateur connecté", asy
   }
 });
 
+test("mes publications filtre sur l'auteur et la visibilité demandée", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFind = Post.find;
+  const originalCountDocuments = Post.countDocuments;
+  const filters = [];
+  const query = {
+    populate() {
+      return this;
+    },
+    sort() {
+      return this;
+    },
+    skip() {
+      return this;
+    },
+    limit() {
+      return this;
+    },
+    lean: async () => [],
+  };
+  Post.find = (filter) => {
+    filters.push(filter);
+    return query;
+  };
+  Post.countDocuments = async (filter) => {
+    filters.push(filter);
+    return 0;
+  };
+
+  try {
+    const response = await fetch(
+      `${base}/api/posts?scope=mine&visibility=private`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.total, 0);
+    assert.deepEqual(filters, [
+      { $and: [{ authorId: userId }, { visibility: "private" }] },
+      { $and: [{ authorId: userId }, { visibility: "private" }] },
+    ]);
+  } finally {
+    Post.find = originalFind;
+    Post.countDocuments = originalCountDocuments;
+  }
+});
+
+test("mes publications ne renvoie jamais les posts d'un autre auteur", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const otherUserId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFind = Post.find;
+  const originalCountDocuments = Post.countDocuments;
+  const ownPost = {
+    _id: new mongoose.Types.ObjectId(),
+    authorId: {
+      _id: userId,
+      name: "Moi",
+      profilePhoto: {
+        storedName: "private-profile-photo.png",
+        mimeType: "image/png",
+        size: 42,
+      },
+    },
+    content: "Ma publication",
+    visibility: "public",
+    media: [],
+    createdAt: new Date(),
+  };
+  const otherPost = {
+    ...ownPost,
+    _id: new mongoose.Types.ObjectId(),
+    authorId: { _id: otherUserId, name: "Autre membre" },
+    content: "Publication d'un autre membre",
+  };
+  let authorSelection;
+  const query = {
+    populate(_path, selection) {
+      authorSelection = selection;
+      return this;
+    },
+    sort() {
+      return this;
+    },
+    skip() {
+      return this;
+    },
+    limit() {
+      return this;
+    },
+    lean: async () => [ownPost, otherPost],
+  };
+  Post.find = () => query;
+  Post.countDocuments = async () => 1;
+
+  try {
+    const response = await fetch(`${base}/api/posts?scope=mine`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.items.map((post) => post.author.id), [userId]);
+    assert.deepEqual(body.items.map((post) => post.content), ["Ma publication"]);
+    assert.equal(
+      authorSelection,
+      "name profilePhoto.mimeType profilePhoto.size",
+    );
+    assert.deepEqual(body.items[0].author, {
+      id: userId,
+      name: "Moi",
+      profilePhoto: { mimeType: "image/png", size: 42 },
+    });
+  } finally {
+    Post.find = originalFind;
+    Post.countDocuments = originalCountDocuments;
+  }
+});
+
+test("une réaction est unique par utilisateur et renvoie le récapitulatif", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const postId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFindOneAndUpdate = Post.findOneAndUpdate;
+  let filter;
+  let update;
+  const updatedPost = {
+    _id: postId,
+    authorId: { _id: userId, name: "Moi" },
+    content: "Une publication",
+    visibility: "public",
+    audio: null,
+    media: [],
+    reactions: new Map([[userId, "love"]]),
+    createdAt: new Date(),
+    populate: async function () {
+      return this;
+    },
+  };
+  Post.findOneAndUpdate = (query, changes) => {
+    filter = query;
+    update = changes;
+    return {
+      populate: async () => updatedPost,
+    };
+  };
+
+  try {
+    const response = await fetch(`${base}/api/posts/${postId}/reaction`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reaction: "love" }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(filter, {
+      _id: postId,
+      $or: [{ visibility: { $ne: "private" } }, { authorId: userId }],
+    });
+    assert.deepEqual(update, { $set: { [`reactions.${userId}`]: "love" } });
+    assert.equal(body.myReaction, "love");
+    assert.equal(body.reactionCounts.love, 1);
+
+    const invalidResponse = await fetch(`${base}/api/posts/${postId}/reaction`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reaction: "unknown" }),
+    });
+    assert.equal(invalidResponse.status, 400);
+  } finally {
+    Post.findOneAndUpdate = originalFindOneAndUpdate;
+  }
+});
+
+test("un commentaire est validé, associé à l'auteur et lisible dans son post", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const postId = new mongoose.Types.ObjectId().toString();
+  const commentId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalPostExists = Post.exists;
+  const originalCommentCreate = Comment.create;
+  const originalCommentFind = Comment.find;
+  const readableFilter = {
+    _id: postId,
+    $or: [{ visibility: { $ne: "private" } }, { authorId: userId }],
+  };
+  let createData;
+  Post.exists = async (filter) => {
+    assert.deepEqual(filter, readableFilter);
+    return { _id: postId };
+  };
+  Comment.create = async (data) => {
+    createData = data;
+    return {
+      _id: commentId,
+      ...data,
+      authorId: { _id: userId, name: "Moi" },
+      createdAt: new Date(),
+      populate: async function () {
+        return this;
+      },
+    };
+  };
+  const commentQuery = {
+    populate() {
+      return this;
+    },
+    sort() {
+      return this;
+    },
+    limit() {
+      return this;
+    },
+    lean: async () => [{
+      _id: commentId,
+      authorId: { _id: userId, name: "Moi" },
+      content: "Très belle photo",
+      createdAt: new Date(),
+    }],
+  };
+  Comment.find = (filter) => {
+    assert.deepEqual(filter, { postId });
+    return commentQuery;
+  };
+
+  try {
+    const invalidResponse = await fetch(`${base}/api/posts/${postId}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content: "   " }),
+    });
+    const createResponse = await fetch(`${base}/api/posts/${postId}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content: "  Très belle photo  " }),
+    });
+    const created = await createResponse.json();
+    const listResponse = await fetch(`${base}/api/posts/${postId}/comments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listed = await listResponse.json();
+
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(createResponse.status, 201);
+    assert.equal(createData.postId, postId);
+    assert.equal(createData.authorId, userId);
+    assert.equal(createData.content, "Très belle photo");
+    assert.equal(created.author.id, userId);
+    assert.equal(listResponse.status, 200);
+    assert.equal(listed[0].content, "Très belle photo");
+  } finally {
+    Post.exists = originalPostExists;
+    Comment.create = originalCommentCreate;
+    Comment.find = originalCommentFind;
+  }
+});
+
 test("la suppression filtre le post sur l'identifiant de son auteur", async () => {
   const userId = new mongoose.Types.ObjectId().toString();
   const postId = new mongoose.Types.ObjectId().toString();
@@ -319,47 +642,20 @@ test("la suppression filtre le post sur l'identifiant de son auteur", async () =
   }
 });
 
-test("une publication audio doit référencer une piste de la bibliothèque de son auteur", async () => {
+test("la création d'une publication audio est temporairement désactivée", async () => {
   const userId = new mongoose.Types.ObjectId().toString();
   const trackId = new mongoose.Types.ObjectId().toString();
-  const postId = new mongoose.Types.ObjectId().toString();
   const token = jwt.sign(
     { sub: userId },
     process.env.JWT_SECRET || "tp1-development-secret",
   );
   const originalFindOne = Track.findOne;
   const originalCreate = Post.create;
-  let trackFilter;
-  let postData;
-  const track = {
-    _id: trackId,
-    originalName: "practice.mp3",
-    storedName: "stored-practice.mp3",
-    mimeType: "audio/mpeg",
-    size: 42,
+  Track.findOne = () => {
+    throw new Error("Une publication audio ne doit pas charger de piste");
   };
-  const post = {
-    id: postId,
-    authorId: { id: userId, name: "Test" },
-    content: "Mon morceau",
-    visibility: "public",
-    audio: {
-      originalName: track.originalName,
-      mimeType: track.mimeType,
-      size: track.size,
-    },
-    createdAt: new Date(),
-    populate: async function () {
-      return this;
-    },
-  };
-  Track.findOne = (filter) => {
-    trackFilter = filter;
-    return { select: async () => track };
-  };
-  Post.create = async (data) => {
-    postData = data;
-    return post;
+  Post.create = () => {
+    throw new Error("Une publication audio ne doit pas être créée");
   };
 
   try {
@@ -376,15 +672,11 @@ test("une publication audio doit référencer une piste de la bibliothèque de s
       }),
     });
 
-    assert.equal(response.status, 201);
-    assert.equal(trackFilter._id, trackId);
-    assert.equal(trackFilter.ownerId, userId);
-    assert.deepEqual(trackFilter.$or, [
-      { category: "uploaded" },
-      { category: { $exists: false } },
-    ]);
-    assert.equal(postData.audio.sourceTrackId, trackId);
-    assert.equal(postData.audio.storedName, track.storedName);
+    assert.equal(response.status, 400);
+    assert.match(
+      (await response.json()).message,
+      /publications audio ne sont pas disponibles/i,
+    );
   } finally {
     Track.findOne = originalFindOne;
     Post.create = originalCreate;
@@ -455,6 +747,16 @@ test("une piste référencée par une publication ne peut pas être supprimée",
 
 test("les routes des membres et messages exigent une authentification", async () => {
   const memberResponse = await fetch(`${base}/api/users`);
+  const photoResponse = await fetch(`${base}/api/users/me/photo`);
+  const memberPhotoResponse = await fetch(
+    `${base}/api/members/${new mongoose.Types.ObjectId()}/photo`,
+  );
+  const uploadPhotoResponse = await fetch(`${base}/api/users/me/photo`, {
+    method: "POST",
+  });
+  const deletePhotoResponse = await fetch(`${base}/api/users/me/photo`, {
+    method: "DELETE",
+  });
   const unreadResponse = await fetch(`${base}/api/messages/unread-counts`);
   const conversationResponse = await fetch(
     `${base}/api/messages/${new mongoose.Types.ObjectId()}`,
@@ -471,12 +773,199 @@ test("les routes des membres et messages exigent une authentification", async ()
   assert.deepEqual(
     [
       memberResponse.status,
+      photoResponse.status,
+      memberPhotoResponse.status,
+      uploadPhotoResponse.status,
+      deletePhotoResponse.status,
       unreadResponse.status,
       conversationResponse.status,
       sendResponse.status,
     ],
-    [401, 401, 401, 401],
+    [401, 401, 401, 401, 401, 401, 401, 401],
   );
+});
+
+test("les membres exposent les métadonnées publiques de leur photo", async () => {
+  const currentUserId = new mongoose.Types.ObjectId().toString();
+  const memberId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: currentUserId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFind = User.find;
+  User.find = () => ({
+    select() {
+      return this;
+    },
+    sort() {
+      return this;
+    },
+    limit() {
+      return this;
+    },
+    lean: async () => [
+      {
+        _id: memberId,
+        name: "Membre",
+        profilePhoto: {
+          storedName: "private-name.png",
+          mimeType: "image/png",
+          size: 42,
+        },
+      },
+    ],
+  });
+
+  try {
+    const response = await fetch(`${base}/api/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), [
+      {
+        id: memberId,
+        name: "Membre",
+        profilePhoto: { mimeType: "image/png", size: 42 },
+      },
+    ]);
+  } finally {
+    User.find = originalFind;
+  }
+});
+
+test("photo de profil : ajout, remplacement, lecture et suppression", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFindById = User.findById;
+  const profileDirectory = path.resolve("data/profile-photos");
+  const user = {
+    id: userId,
+    name: "Profil",
+    email: "profil@example.com",
+    profilePhoto: null,
+    toPublic() {
+      return {
+        id: this.id,
+        name: this.name,
+        email: this.email,
+        profilePhoto: this.profilePhoto
+          ? {
+              mimeType: this.profilePhoto.mimeType,
+              size: this.profilePhoto.size,
+            }
+          : null,
+      };
+    },
+    async save() {},
+  };
+  User.findById = () => ({
+    select: async () => user,
+  });
+  const headers = { Authorization: `Bearer ${token}` };
+  const generatedFiles = [];
+  const uploadPhoto = async (contents) => {
+    const form = new FormData();
+    form.append(
+      "photo",
+      new Blob([contents], { type: "image/png" }),
+      "avatar.png",
+    );
+    const response = await fetch(`${base}/api/users/me/photo`, {
+      method: "POST",
+      headers,
+      body: form,
+    });
+    if (user.profilePhoto?.storedName) {
+      generatedFiles.push(user.profilePhoto.storedName);
+    }
+    return response;
+  };
+
+  try {
+    const firstUploadResponse = await uploadPhoto("first-photo");
+    const firstUploadBody = await firstUploadResponse.json();
+    const firstStoredName = user.profilePhoto.storedName;
+    assert.equal(firstUploadResponse.status, 200);
+    assert.deepEqual(firstUploadBody.profilePhoto, {
+      mimeType: "image/png",
+      size: Buffer.byteLength("first-photo"),
+    });
+    assert.equal(firstUploadBody.profilePhoto.storedName, undefined);
+    assert.ok(firstStoredName);
+
+    const memberPhotoResponse = await fetch(
+      `${base}/api/members/${userId}/photo`,
+      { headers },
+    );
+    assert.equal(memberPhotoResponse.status, 200);
+    assert.equal(memberPhotoResponse.headers.get("content-type"), "image/png");
+    assert.equal(await memberPhotoResponse.text(), "first-photo");
+
+    const replacementResponse = await uploadPhoto("replacement-photo");
+    const replacementBody = await replacementResponse.json();
+    const replacementStoredName = user.profilePhoto.storedName;
+    assert.equal(replacementResponse.status, 200);
+    assert.notEqual(replacementStoredName, firstStoredName);
+    await assert.rejects(
+      fsPromises.access(path.join(profileDirectory, firstStoredName)),
+    );
+
+    const photoResponse = await fetch(`${base}/api/users/me/photo`, {
+      headers,
+    });
+    assert.equal(photoResponse.status, 200);
+    assert.equal(photoResponse.headers.get("content-type"), "image/png");
+    assert.equal(await photoResponse.text(), "replacement-photo");
+    assert.deepEqual(replacementBody.profilePhoto, user.toPublic().profilePhoto);
+
+    const deleteResponse = await fetch(`${base}/api/users/me/photo`, {
+      method: "DELETE",
+      headers,
+    });
+    assert.equal(deleteResponse.status, 204);
+    assert.equal(user.profilePhoto, null);
+    await assert.rejects(
+      fsPromises.access(path.join(profileDirectory, replacementStoredName)),
+    );
+    const missingPhotoResponse = await fetch(
+      `${base}/api/users/me/photo`,
+      { headers },
+    );
+    assert.equal(missingPhotoResponse.status, 404);
+  } finally {
+    User.findById = originalFindById;
+    await Promise.all(
+      generatedFiles.map((filename) =>
+        fsPromises.rm(path.join(profileDirectory, filename), { force: true }),
+      ),
+    );
+  }
+});
+
+test("photo de profil refuse les formats non image", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const form = new FormData();
+  form.append(
+    "photo",
+    new Blob(["not an image"], { type: "application/pdf" }),
+    "document.pdf",
+  );
+
+  const response = await fetch(`${base}/api/users/me/photo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  assert.equal(response.status, 400);
 });
 
 test("les compteurs de messages non lus sont calculés par expéditeur", async () => {
@@ -559,7 +1048,13 @@ test("l’ouverture d’une conversation marque ses messages entrants comme lus"
       recipientId,
       readAt: null,
     });
-    assert.deepEqual((await response.json()).items, []);
+    const body = await response.json();
+    assert.deepEqual(body.member, {
+      id: senderId,
+      name: "Expéditeur",
+      profilePhoto: null,
+    });
+    assert.deepEqual(body.items, []);
   } finally {
     User.findById = originalUserFind;
     Message.updateMany = originalUpdateMany;
@@ -623,6 +1118,7 @@ test("l’envoi d’un message utilise l’auteur du JWT et nettoie le texte", a
     assert.equal(createdMessage.content, "Bonjour !");
     assert.equal(createdMessage.readAt, null);
     assert.equal(body.sender.id, senderId);
+    assert.equal(body.sender.profilePhoto, null);
     assert.equal(body.content, "Bonjour !");
   } finally {
     User.exists = originalExists;
@@ -658,6 +1154,44 @@ test("l’accès aux médias des posts respecte la visibilité privée", async (
     });
   } finally {
     Post.findOne = originalFindOne;
+  }
+});
+
+test("un média de publication est servi depuis le dossier persistant", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const postId = new mongoose.Types.ObjectId().toString();
+  const mediaId = new mongoose.Types.ObjectId().toString();
+  const storedName = `${crypto.randomUUID()}.png`;
+  const mediaPath = path.resolve("data/media", storedName);
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFindOne = Post.findOne;
+  await fsPromises.writeFile(mediaPath, Buffer.from("image-data"));
+  Post.findOne = () => ({
+    select: async () => ({
+      id: postId,
+      media: [{
+        _id: mediaId,
+        storedName,
+        mimeType: "image/png",
+      }],
+    }),
+  });
+
+  try {
+    const response = await fetch(
+      `${base}/api/posts/${postId}/media/${mediaId}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.equal(await response.text(), "image-data");
+  } finally {
+    Post.findOne = originalFindOne;
+    await fsPromises.unlink(mediaPath);
   }
 });
 

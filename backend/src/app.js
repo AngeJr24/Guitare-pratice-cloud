@@ -6,22 +6,30 @@ import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 import mongoose from "mongoose";
 import { User } from "./models/User.js";
 import { Track } from "./models/Track.js";
 import { Post } from "./models/Post.js";
+import { Comment } from "./models/Comment.js";
 import { Message } from "./models/Message.js";
 
 // Les fichiers audio restent sur le disque du serveur dans ce TP.
 // MongoDB ne conserve que leurs métadonnées : titre, nom, taille, etc.
-const UPLOADS = path.resolve("data/uploads");
-const MEDIA_UPLOADS = path.resolve("data/media");
+const DATA_DIRECTORY = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../data",
+);
+const UPLOADS = path.join(DATA_DIRECTORY, "uploads");
+const MEDIA_UPLOADS = path.join(DATA_DIRECTORY, "media");
+const PROFILE_PHOTOS = path.join(DATA_DIRECTORY, "profile-photos");
 
 try {
   // mkdirSync est utilisé au démarrage : l'application doit disposer de ce
   // dossier avant de pouvoir accepter le premier upload.
   fs.mkdirSync(UPLOADS, { recursive: true });
   fs.mkdirSync(MEDIA_UPLOADS, { recursive: true });
+  fs.mkdirSync(PROFILE_PHOTOS, { recursive: true });
   console.log(`[startup] Dossier des uploads prêt : ${UPLOADS}`);
 } catch (error) {
   console.error("[startup] Impossible de créer le dossier des uploads", error);
@@ -33,6 +41,8 @@ const SECRET = process.env.JWT_SECRET || "tp1-development-secret";
 
 // Les sons et médias de publication sont limités à 25 Mo par fichier.
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_PROFILE_PHOTO_SIZE = 5 * 1024 * 1024;
+const POST_REACTIONS = ["like", "love", "haha", "wow", "sad", "angry"];
 
 // Les types MIME autorisés correspondent aux formats demandés dans le sujet.
 const allowed = new Set([
@@ -149,15 +159,39 @@ const postMediaUpload = multer({
     return callback(new Error("Format média non accepté"));
   },
 });
+const allowedProfilePhotoTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const profilePhotoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) =>
+      callback(null, PROFILE_PHOTOS),
+    filename: (_request, file, callback) =>
+      callback(
+        null,
+        crypto.randomUUID() + path.extname(file.originalname).toLowerCase(),
+      ),
+  }),
+  limits: { fileSize: MAX_PROFILE_PHOTO_SIZE, files: 1 },
+  fileFilter: (_request, file, callback) => {
+    if (allowedProfilePhotoTypes.has(file.mimetype)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Format de photo non accepté"));
+  },
+});
 
-function publicPost(post) {
+function publicPost(post, viewerId) {
   const author = post.authorId;
+  const reactions =
+    post.reactions instanceof Map
+      ? Object.fromEntries(post.reactions)
+      : post.reactions ?? {};
   return {
     id: String(post._id ?? post.id),
-    author: {
-      id: String(author?._id ?? author),
-      name: author?.name ?? "",
-    },
+    author: publicMember(author),
     content: post.content || "",
     visibility: post.visibility || "public",
     audio: post.audio
@@ -174,7 +208,47 @@ function publicPost(post) {
       mimeType: media.mimeType,
       size: media.size,
     })),
+    reactionCounts: Object.fromEntries(
+      POST_REACTIONS.map((type) => [
+        type,
+        Object.values(reactions).filter((reaction) => reaction === type).length,
+      ]),
+    ),
+    myReaction: reactions[String(viewerId)] ?? null,
     createdAt: post.createdAt,
+  };
+}
+
+function publicComment(comment) {
+  const author = comment.authorId;
+  return {
+    id: String(comment._id ?? comment.id),
+    author: {
+      id: String(author?._id ?? author),
+      name: author?.name ?? "",
+    },
+    content: comment.content,
+    createdAt: comment.createdAt,
+  };
+}
+
+function publicMember(member) {
+  return {
+    id: String(member?._id ?? member?.id ?? member),
+    name: member?.name ?? "",
+    profilePhoto: member?.profilePhoto
+      ? {
+          mimeType: member.profilePhoto.mimeType,
+          size: member.profilePhoto.size,
+        }
+      : null,
+  };
+}
+
+function readablePostFilter(postId, userId) {
+  return {
+    _id: postId,
+    $or: [{ visibility: { $ne: "private" } }, { authorId: userId }],
   };
 }
 
@@ -187,6 +261,19 @@ async function cleanupPostMedia(files = []) {
         console.error("[posts] Impossible de supprimer un média incomplet", error);
         throw error;
       }
+    }
+  }
+}
+
+async function removeProfilePhotoFile(filename) {
+  if (!filename) {
+    return;
+  }
+  try {
+    await fsPromises.unlink(path.join(PROFILE_PHOTOS, filename));
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
     }
   }
 }
@@ -339,19 +426,148 @@ export function createApp() {
     }
   });
 
+  app.post(
+    "/api/users/me/photo",
+    auth,
+    profilePhotoUpload.single("photo"),
+    async (req, res, next) => {
+      if (!req.file) {
+        return res.status(400).json({ message: "Photo de profil requise" });
+      }
+
+      let user;
+      let previousFilename;
+      try {
+        user = await User.findById(req.auth.sub).select(
+          "+profilePhoto.storedName",
+        );
+        if (!user) {
+          await removeProfilePhotoFile(req.file.filename);
+          return res.status(404).json({ message: "Utilisateur inconnu" });
+        }
+
+        previousFilename = user.profilePhoto?.storedName;
+        user.profilePhoto = {
+          storedName: req.file.filename,
+          mimeType: req.file.mimetype,
+          size: req.file.size,
+        };
+        await user.save();
+      } catch (error) {
+        console.error("[user] Erreur d'enregistrement de la photo de profil", error);
+        try {
+          await removeProfilePhotoFile(req.file.filename);
+        } catch (cleanupError) {
+          console.error("[user] Photo temporaire non supprimée", cleanupError);
+        }
+        next(error);
+        return;
+      }
+
+      try {
+        await removeProfilePhotoFile(previousFilename);
+      } catch (error) {
+        console.error("[user] Ancienne photo de profil non supprimée", error);
+        return res.status(500).json({
+          message: "Photo remplacée, mais l’ancienne photo n’a pas pu être supprimée",
+        });
+      }
+      res.json(user.toPublic());
+    },
+  );
+
+  app.get("/api/users/me/photo", auth, async (req, res, next) => {
+    try {
+      const user = await User.findById(req.auth.sub).select(
+        "+profilePhoto.storedName",
+      );
+      if (!user?.profilePhoto?.storedName) {
+        return res.status(404).json({ message: "Photo de profil introuvable" });
+      }
+
+      res.type(user.profilePhoto.mimeType);
+      res.setHeader("Content-Disposition", "inline");
+      res.sendFile(
+        path.join(PROFILE_PHOTOS, user.profilePhoto.storedName),
+        (error) => {
+          if (error) {
+            console.error("[user] Photo de profil non envoyée", error);
+            if (!res.headersSent) {
+              next(error);
+            }
+          }
+        },
+      );
+    } catch (error) {
+      console.error("[user] Erreur de lecture de la photo de profil", error);
+      next(error);
+    }
+  });
+
+  app.delete("/api/users/me/photo", auth, async (req, res, next) => {
+    try {
+      const user = await User.findById(req.auth.sub).select(
+        "+profilePhoto.storedName",
+      );
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur inconnu" });
+      }
+
+      const previousFilename = user.profilePhoto?.storedName;
+      if (!previousFilename) {
+        return res.status(204).end();
+      }
+
+      user.profilePhoto = null;
+      await user.save();
+      await removeProfilePhotoFile(previousFilename);
+      res.status(204).end();
+    } catch (error) {
+      console.error("[user] Erreur de suppression de la photo de profil", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/members/:memberId/photo", auth, async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.memberId)) {
+        return res.status(400).json({ message: "Identifiant de membre invalide" });
+      }
+
+      const member = await User.findById(req.params.memberId).select(
+        "+profilePhoto.storedName",
+      );
+      if (!member?.profilePhoto?.storedName) {
+        return res.status(404).json({ message: "Photo de profil introuvable" });
+      }
+
+      res.type(member.profilePhoto.mimeType);
+      res.setHeader("Content-Disposition", "inline");
+      res.sendFile(
+        path.join(PROFILE_PHOTOS, member.profilePhoto.storedName),
+        (error) => {
+          if (error) {
+            console.error("[members] Photo de profil non envoyée", error);
+            if (!res.headersSent) {
+              next(error);
+            }
+          }
+        },
+      );
+    } catch (error) {
+      console.error("[members] Erreur de lecture de la photo de profil", error);
+      next(error);
+    }
+  });
+
   app.get("/api/users", auth, async (req, res, next) => {
     try {
       const users = await User.find({ _id: { $ne: req.auth.sub } })
-        .select("name")
+        .select("name profilePhoto.mimeType profilePhoto.size")
         .sort({ name: 1 })
         .limit(100)
         .lean();
-      res.json(
-        users.map((user) => ({
-          id: String(user._id),
-          name: user.name,
-        })),
-      );
+      res.json(users.map(publicMember));
     } catch (error) {
       console.error("[users] Erreur de lecture des membres", error);
       next(error);
@@ -389,7 +605,9 @@ export function createApp() {
       if (!mongoose.isValidObjectId(userId) || userId === req.auth.sub) {
         return res.status(400).json({ message: "Destinataire invalide" });
       }
-      const recipient = await User.findById(userId).select("name").lean();
+      const recipient = await User.findById(userId)
+        .select("name profilePhoto.mimeType profilePhoto.size")
+        .lean();
       if (!recipient) {
         return res.status(404).json({ message: "Membre introuvable" });
       }
@@ -409,24 +627,18 @@ export function createApp() {
           { senderId: userId, recipientId: req.auth.sub },
         ],
       })
-        .populate("senderId", "name")
-        .populate("recipientId", "name")
+        .populate("senderId", "name profilePhoto.mimeType profilePhoto.size")
+        .populate("recipientId", "name profilePhoto.mimeType profilePhoto.size")
         .sort({ createdAt: -1 })
         .limit(100)
         .lean();
 
       res.json({
-        member: { id: String(recipient._id), name: recipient.name },
+        member: publicMember(recipient),
         items: messages.reverse().map((message) => ({
           id: String(message._id),
-          sender: {
-            id: String(message.senderId._id),
-            name: message.senderId.name,
-          },
-          recipient: {
-            id: String(message.recipientId._id),
-            name: message.recipientId.name,
-          },
+          sender: publicMember(message.senderId),
+          recipient: publicMember(message.recipientId),
           content: message.content,
           createdAt: message.createdAt,
         })),
@@ -461,16 +673,19 @@ export function createApp() {
         readAt: null,
       });
       await message.populate([
-        { path: "senderId", select: "name" },
-        { path: "recipientId", select: "name" },
+        {
+          path: "senderId",
+          select: "name profilePhoto.mimeType profilePhoto.size",
+        },
+        {
+          path: "recipientId",
+          select: "name profilePhoto.mimeType profilePhoto.size",
+        },
       ]);
       res.status(201).json({
         id: message.id,
-        sender: { id: message.senderId.id, name: message.senderId.name },
-        recipient: {
-          id: message.recipientId.id,
-          name: message.recipientId.name,
-        },
+        sender: publicMember(message.senderId),
+        recipient: publicMember(message.recipientId),
         content: message.content,
         createdAt: message.createdAt,
       });
@@ -484,21 +699,48 @@ export function createApp() {
     try {
       const page = Math.max(1, Number(req.query.page) || 1);
       const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 10));
-      const filter = {
-        $or: [{ visibility: { $ne: "private" } }, { authorId: req.auth.sub }],
-      };
+      const scope = req.query.scope ?? "recent";
+      const visibility = req.query.visibility ?? "all";
+      if (scope !== "recent" && scope !== "mine") {
+        return res.status(400).json({ message: "Filtre de publications invalide" });
+      }
+      if (!["all", "public", "private"].includes(visibility)) {
+        return res.status(400).json({ message: "Filtre de visibilité invalide" });
+      }
+
+      const scopeFilter =
+        scope === "mine"
+          ? { authorId: req.auth.sub }
+          : {
+              $or: [
+                { visibility: { $ne: "private" } },
+                { authorId: req.auth.sub },
+              ],
+            };
+      const filter =
+        visibility === "all"
+          ? scopeFilter
+          : { $and: [scopeFilter, { visibility }] };
       const [items, total] = await Promise.all([
         Post.find(filter)
-          .populate("authorId", "name")
+          .populate("authorId", "name profilePhoto.mimeType profilePhoto.size")
           .sort({ createdAt: -1 })
           .skip((page - 1) * limit)
           .limit(limit)
           .lean(),
         Post.countDocuments(filter),
       ]);
+      const visibleItems =
+        scope === "mine"
+          ? items.filter(
+              (post) =>
+                String(post.authorId?._id ?? post.authorId) ===
+                String(req.auth.sub),
+            )
+          : items;
 
       res.json({
-        items: items.map(publicPost),
+        items: visibleItems.map((post) => publicPost(post, req.auth.sub)),
         page,
         limit,
         total,
@@ -522,26 +764,18 @@ export function createApp() {
       const hasContent = content.length > 0;
       const trackId =
         typeof req.body?.trackId === "string" ? req.body.trackId.trim() : "";
-      const track = trackId
-        ? await Track.findOne({
-            _id: trackId,
-            ownerId: req.auth.sub,
-            $or: [{ category: "uploaded" }, { category: { $exists: false } }],
-          }).select("+storedName")
-        : null;
-      const hasAudio = Boolean(track);
       const files = req.files ?? [];
 
-      if (trackId && !track) {
-        await cleanupPostMedia(files);
-        return res.status(404).json({
-          message: "La piste sélectionnée est introuvable dans votre bibliothèque",
-        });
-      }
-      if (!hasContent && !hasAudio && files.length === 0) {
+      if (trackId) {
         await cleanupPostMedia(files);
         return res.status(400).json({
-          message: "Ajoutez un texte, une piste audio ou un média à la publication",
+          message: "Les publications audio ne sont pas disponibles pour le moment",
+        });
+      }
+      if (!hasContent && files.length === 0) {
+        await cleanupPostMedia(files);
+        return res.status(400).json({
+          message: "Ajoutez un texte, une photo ou une vidéo à la publication",
         });
       }
       if (hasContent && content.length > 2000) {
@@ -561,15 +795,6 @@ export function createApp() {
         visibility,
       };
 
-      if (track) {
-        postData.audio = {
-          originalName: track.originalName,
-          storedName: track.storedName,
-          mimeType: track.mimeType,
-          size: track.size,
-          sourceTrackId: track._id,
-        };
-      }
       postData.media = files.map((file) => ({
         originalName: file.originalname,
         storedName: file.filename,
@@ -578,8 +803,11 @@ export function createApp() {
       }));
 
       const post = await Post.create(postData);
-      await post.populate("authorId", "name");
-      res.status(201).json(publicPost(post));
+      await post.populate(
+        "authorId",
+        "name profilePhoto.mimeType profilePhoto.size",
+      );
+      res.status(201).json(publicPost(post, req.auth.sub));
     } catch (error) {
       console.error("[posts] Erreur de création", error);
       try {
@@ -620,15 +848,98 @@ export function createApp() {
         { _id: req.params.id, authorId: req.auth.sub },
         { $set: { content, visibility } },
         { new: true },
-      ).populate("authorId", "name");
+      ).populate(
+        "authorId",
+        "name profilePhoto.mimeType profilePhoto.size",
+      );
 
       if (!post) {
         return res.status(404).json({ message: "Publication introuvable" });
       }
 
-      res.json(publicPost(post));
+      res.json(publicPost(post, req.auth.sub));
     } catch (error) {
       console.error("[posts] Erreur de modification", error);
+      next(error);
+    }
+  });
+
+  app.put("/api/posts/:id/reaction", auth, async (req, res, next) => {
+    try {
+      const { reaction } = req.body ?? {};
+      if (reaction !== null && !POST_REACTIONS.includes(reaction)) {
+        return res.status(400).json({ message: "Réaction invalide" });
+      }
+
+      const update = reaction
+        ? { $set: { [`reactions.${req.auth.sub}`]: reaction } }
+        : { $unset: { [`reactions.${req.auth.sub}`]: 1 } };
+      const post = await Post.findOneAndUpdate(
+        readablePostFilter(req.params.id, req.auth.sub),
+        update,
+        { new: true },
+      ).populate(
+        "authorId",
+        "name profilePhoto.mimeType profilePhoto.size",
+      );
+
+      if (!post) {
+        return res.status(404).json({ message: "Publication introuvable" });
+      }
+      res.json(publicPost(post, req.auth.sub));
+    } catch (error) {
+      console.error("[posts] Erreur d'enregistrement de la réaction", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/posts/:id/comments", auth, async (req, res, next) => {
+    try {
+      const post = await Post.exists(
+        readablePostFilter(req.params.id, req.auth.sub),
+      );
+      if (!post) {
+        return res.status(404).json({ message: "Publication introuvable" });
+      }
+
+      const comments = await Comment.find({ postId: req.params.id })
+        .populate("authorId", "name")
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+      res.json(comments.reverse().map(publicComment));
+    } catch (error) {
+      console.error("[posts] Erreur de lecture des commentaires", error);
+      next(error);
+    }
+  });
+
+  app.post("/api/posts/:id/comments", auth, async (req, res, next) => {
+    try {
+      const content =
+        typeof req.body?.content === "string" ? req.body.content.trim() : "";
+      if (!content || content.length > 1000) {
+        return res.status(400).json({
+          message: "Un commentaire doit contenir de 1 à 1000 caractères",
+        });
+      }
+
+      const post = await Post.exists(
+        readablePostFilter(req.params.id, req.auth.sub),
+      );
+      if (!post) {
+        return res.status(404).json({ message: "Publication introuvable" });
+      }
+
+      const comment = await Comment.create({
+        postId: req.params.id,
+        authorId: req.auth.sub,
+        content,
+      });
+      await comment.populate("authorId", "name");
+      res.status(201).json(publicComment(comment));
+    } catch (error) {
+      console.error("[posts] Erreur de création du commentaire", error);
       next(error);
     }
   });
@@ -719,6 +1030,15 @@ export function createApp() {
             message: "Publication supprimée, mais un média n’a pas pu être supprimé",
           });
         }
+      }
+
+      try {
+        await Comment.deleteMany({ postId: post._id });
+      } catch (error) {
+        console.error(`[posts] Commentaires non supprimés : ${post.id}`, error);
+        return res.status(500).json({
+          message: "Publication supprimée, mais les commentaires n’ont pas pu être supprimés",
+        });
       }
 
       res.status(204).end();
@@ -924,7 +1244,8 @@ export function createApp() {
     if (
       error instanceof multer.MulterError ||
       error?.message === "Format audio non accepté" ||
-      error?.message === "Format média non accepté"
+      error?.message === "Format média non accepté" ||
+      error?.message === "Format de photo non accepté"
     ) {
       return res.status(400).json({ message: error.message });
     }

@@ -37,6 +37,35 @@ describe('CommunityService', () => {
     injector.destroy();
   });
 
+  it('requests only the current user posts with the selected visibility', () => {
+    const get = vi.fn(() => of({
+      items: [],
+      page: 1,
+      limit: 10,
+      total: 0,
+      pages: 1,
+    }));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { get } }],
+    });
+    const service = runInInjectionContext(
+      injector,
+      () => new CommunityService(),
+    );
+
+    service.list(1, 10, 'mine', 'private').subscribe();
+
+    expect(get).toHaveBeenCalledWith('/api/posts', {
+      params: {
+        page: 1,
+        limit: 10,
+        scope: 'mine',
+        visibility: 'private',
+      },
+    });
+    injector.destroy();
+  });
+
   it('sends post text and visibility as multipart form data', () => {
     const post = {
       id: 'post-1',
@@ -45,6 +74,15 @@ describe('CommunityService', () => {
       visibility: 'public' as const,
       audio: null,
       media: [],
+      reactionCounts: {
+        like: 0,
+        love: 0,
+        haha: 0,
+        wow: 0,
+        sad: 0,
+        angry: 0,
+      },
+      myReaction: null,
       createdAt: '2026-10-14T00:00:00.000Z',
     };
     const postRequest = vi.fn((_url: string, _body: FormData) => of(post));
@@ -73,7 +111,7 @@ describe('CommunityService', () => {
     injector.destroy();
   });
 
-  it('includes the selected track identifier when publishing audio', () => {
+  it('includes media without adding an audio track identifier', () => {
     const postRequest = vi.fn((_url: string, _body: FormData) => of({} as CommunityPost));
     const injector = Injector.create({
       providers: [{ provide: HttpClient, useValue: { post: postRequest } }],
@@ -83,7 +121,8 @@ describe('CommunityService', () => {
       () => new CommunityService(),
     );
 
-    service.create('Découverte', 'private', 'track-42').subscribe();
+    const photo = new File(['image'], 'photo.png', { type: 'image/png' });
+    service.create('Découverte', 'private', [photo]).subscribe();
 
     const body = postRequest.mock.calls[0]?.[1];
     expect(body).toBeInstanceOf(FormData);
@@ -92,7 +131,8 @@ describe('CommunityService', () => {
     }
     expect(body.get('content')).toBe('Découverte');
     expect(body.get('visibility')).toBe('private');
-    expect(body.get('trackId')).toBe('track-42');
+    expect(body.get('trackId')).toBeNull();
+    expect(body.getAll('media')).toHaveLength(1);
     injector.destroy();
   });
 
@@ -102,6 +142,15 @@ describe('CommunityService', () => {
       author: { id: 'user-1', name: 'Ange' },
       content: 'Texte modifié',
       visibility: 'private' as const,
+      reactionCounts: {
+        like: 0,
+        love: 0,
+        haha: 0,
+        wow: 0,
+        sad: 0,
+        angry: 0,
+      },
+      myReaction: null,
       createdAt: '2026-10-14T00:00:00.000Z',
     };
     const patch = vi.fn(() => of(updated));
@@ -139,6 +188,69 @@ describe('CommunityService', () => {
     service.delete('post-1').subscribe();
 
     expect(deleteRequest).toHaveBeenCalledWith('/api/posts/post-1');
+    injector.destroy();
+  });
+
+  it('updates the current user reaction on a post', () => {
+    const updated: CommunityPost = {
+      id: 'post-1',
+      author: { id: 'user-1', name: 'Ange' },
+      content: 'Une découverte',
+      visibility: 'public',
+      audio: null,
+      media: [],
+      reactionCounts: {
+        like: 1,
+        love: 0,
+        haha: 0,
+        wow: 0,
+        sad: 0,
+        angry: 0,
+      },
+      myReaction: 'like',
+      createdAt: '2026-10-14T00:00:00.000Z',
+    };
+    const put = vi.fn(() => of(updated));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { put } }],
+    });
+    const service = runInInjectionContext(
+      injector,
+      () => new CommunityService(),
+    );
+
+    service.react('post-1', 'like').subscribe();
+
+    expect(put).toHaveBeenCalledWith('/api/posts/post-1/reaction', {
+      reaction: 'like',
+    });
+    injector.destroy();
+  });
+
+  it('loads comments and sends a new comment', () => {
+    const comment = {
+      id: 'comment-1',
+      author: { id: 'user-1', name: 'Ange' },
+      content: 'Super !',
+      createdAt: '2026-10-14T00:00:00.000Z',
+    };
+    const get = vi.fn(() => of([comment]));
+    const post = vi.fn(() => of(comment));
+    const injector = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { get, post } }],
+    });
+    const service = runInInjectionContext(
+      injector,
+      () => new CommunityService(),
+    );
+
+    service.comments('post-1').subscribe();
+    service.addComment('post-1', 'Super !').subscribe();
+
+    expect(get).toHaveBeenCalledWith('/api/posts/post-1/comments');
+    expect(post).toHaveBeenCalledWith('/api/posts/post-1/comments', {
+      content: 'Super !',
+    });
     injector.destroy();
   });
 

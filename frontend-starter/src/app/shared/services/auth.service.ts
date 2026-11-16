@@ -59,6 +59,37 @@ export class AuthService {
       .pipe(tap((user) => this.currentUser.set(user)));
   }
 
+  uploadProfilePhoto(file: File) {
+    const body = new FormData();
+    body.append('photo', file);
+    return this.http
+      .post<User>('/api/users/me/photo', body)
+      .pipe(tap((user) => this.currentUser.set(user)));
+  }
+
+  profilePhoto() {
+    return this.http.get('/api/users/me/photo', { responseType: 'blob' });
+  }
+
+  memberPhoto(memberId: string) {
+    return this.http.get(`/api/members/${encodeURIComponent(memberId)}/photo`, {
+      responseType: 'blob',
+    });
+  }
+
+  deleteProfilePhoto() {
+    return this.http
+      .delete<void>('/api/users/me/photo')
+      .pipe(
+        tap(() => {
+          const user = this.currentUser();
+          if (user) {
+            this.currentUser.set({ ...user, profilePhoto: null });
+          }
+        }),
+      );
+  }
+
   logout(): void {
     console.log('[auth] logout called');
     localStorage.removeItem('gpc_token');

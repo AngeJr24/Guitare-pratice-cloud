@@ -1,6 +1,9 @@
+import { ProfilePhoto } from './user.model';
+
 export interface SocialMember {
   id: string;
   name: string;
+  profilePhoto?: ProfilePhoto | null;
 }
 
 export interface DirectMessage {

@@ -1,7 +1,7 @@
 <section class="messages-page">
   <header class="page-heading">
-    <p class="eyebrow">RÉSEAU MUSICAL</p>
-    <h1>Messagerie</h1>
+    <h1 class="eyebrow">Messagerie</h1>
+
     <p>Échangez en privé avec les membres de la communauté.</p>
   </header>
 
@@ -25,7 +25,11 @@
           [class.selected]="selectedMember()?.id === member.id"
           (click)="selectMember(member)"
         >
-          <span class="avatar" aria-hidden="true">{{ member.name.charAt(0).toUpperCase() }}</span>
+          @if (avatarUrls()[member.id]; as photoUrl) {
+            <img class="avatar" [src]="photoUrl" alt="" aria-hidden="true" />
+          } @else {
+            <span class="avatar" aria-hidden="true">{{ member.name.charAt(0).toUpperCase() }}</span>
+          }
           <span>{{ member.name }}</span>
           @if (service.unreadCount(member.id) > 0) {
             <span class="unread-badge" [attr.aria-label]="service.unreadCount(member.id) + ' messages non lus'">
@@ -43,8 +47,15 @@
     <section class="card conversation" aria-label="Conversation">
       @if (selectedMember(); as member) {
         <header class="conversation-heading">
-          <h2>{{ member.name }}</h2>
-          <span>Conversation privée</span>
+          @if (avatarUrls()[member.id]; as photoUrl) {
+            <img class="avatar" [src]="photoUrl" alt="" aria-hidden="true" />
+          } @else {
+            <span class="avatar" aria-hidden="true">{{ member.name.charAt(0).toUpperCase() }}</span>
+          }
+          <div class="conversation-member">
+            <h2>{{ member.name }}</h2>
+            <span>Conversation privée</span>
+          </div>
         </header>
 
         <div class="message-list" aria-live="polite">
@@ -56,8 +67,17 @@
               class="direct-message"
               [class.own-message]="message.sender.id === currentUserId()"
             >
-              <p>{{ message.content }}</p>
-              <time [attr.datetime]="message.createdAt">{{ message.createdAt | date:'short' }}</time>
+              @if (avatarUrls()[message.sender.id]; as photoUrl) {
+                <img class="message-avatar" [src]="photoUrl" alt="" aria-hidden="true" />
+              } @else {
+                <span class="message-avatar" aria-hidden="true">
+                  {{ message.sender.name.charAt(0).toUpperCase() }}
+                </span>
+              }
+              <div class="message-bubble">
+                <p>{{ message.content }}</p>
+                <time [attr.datetime]="message.createdAt">{{ message.createdAt | date:'short' }}</time>
+              </div>
             </article>
           } @empty {
             @if (!loadingConversation()) {
