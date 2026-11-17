@@ -1,0 +1,33 @@
+<section class="library-page">
+  <div class="hero">
+    <p class="eyebrow">ESPACE MUSICAL</p>
+    <h1>Bibliothèque musicale</h1>
+    <p>Retrouvez vos morceaux importés et découvrez les playlists des membres.</p>
+  </div>
+
+  <div class="library-layout">
+    <aside class="library-sidebar" aria-label="Navigation de la bibliothèque musicale">
+      <p class="eyebrow">NAVIGATION</p>
+      <a
+        routerLink="/library/tracks"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        ariaCurrentWhenActive="page"
+      >
+        Ma bibliothèque audio
+      </a>
+      <a
+        routerLink="/library/playlists"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        ariaCurrentWhenActive="page"
+      >
+        Playlists
+      </a>
+    </aside>
+
+    <div class="library-content">
+      <router-outlet />
+    </div>
+  </div>
+</section>

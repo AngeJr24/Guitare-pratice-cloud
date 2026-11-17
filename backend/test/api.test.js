@@ -11,6 +11,7 @@ import { Track } from "../src/models/Track.js";
 import { Post } from "../src/models/Post.js";
 import { Comment } from "../src/models/Comment.js";
 import { Message } from "../src/models/Message.js";
+import { Playlist } from "../src/models/Playlist.js";
 
 let server, base;
 
@@ -47,6 +48,23 @@ test("schémas Mongoose et relation", () => {
   
   assert.equal(t.title, "Blues");
   assert.equal(Track.schema.path("ownerId").options.ref, "User");
+
+  const playlist = new Playlist({
+    ownerId: new mongoose.Types.ObjectId(),
+    name: "  Répétition  ",
+  });
+  assert.equal(playlist.name, "Répétition");
+  assert.equal(playlist.visibility, "private");
+  assert.deepEqual(playlist.tracks, []);
+  assert.equal(Playlist.schema.path("ownerId").options.ref, "User");
+  assert.equal(
+    Playlist.schema.path("tracks").schema.path("trackId").options.ref,
+    "Track",
+  );
+  assert.equal(
+    Playlist.schema.path("tracks").schema.path("addedBy").options.ref,
+    "User",
+  );
 
   const profileUser = new User({
     name: "Profil",
@@ -736,13 +754,400 @@ test("une piste référencée par une publication ne peut pas être supprimée",
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
-
     assert.equal(response.status, 409);
     assert.equal(deleteCalled, false);
   } finally {
     Post.exists = originalPostExists;
     Track.findOneAndDelete = originalTrackDelete;
   }
+});
+
+test("les routes de playlists exigent une authentification", async () => {
+      const playlistId = new mongoose.Types.ObjectId();
+      const trackId = new mongoose.Types.ObjectId();
+      const requests = [
+        fetch(`${base}/api/playlists`),
+        fetch(`${base}/api/playlists`, { method: "POST" }),
+        fetch(`${base}/api/playlists/${playlistId}`),
+        fetch(`${base}/api/playlists/${playlistId}`, { method: "PATCH" }),
+        fetch(`${base}/api/playlists/${playlistId}`, { method: "DELETE" }),
+        fetch(`${base}/api/playlists/${playlistId}/tracks`, { method: "POST" }),
+        fetch(`${base}/api/playlists/${playlistId}/tracks/${trackId}`, {
+          method: "DELETE",
+        }),
+        fetch(`${base}/api/playlists/${playlistId}/tracks/${trackId}/audio`),
+      ];
+      const responses = await Promise.all(requests);
+      assert.deepEqual(responses.map((response) => response.status), Array(8).fill(401));
+});
+
+test("les playlists listées sont publiques ou appartiennent au membre", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFind = Playlist.find;
+  let filter;
+  Playlist.find = (query) => {
+    filter = query;
+    return {
+      populate() {
+        return this;
+      },
+      sort() {
+        return this;
+      },
+      lean: async () => [],
+    };
+  };
+
+  try {
+    const response = await fetch(`${base}/api/playlists`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(filter, {
+      $or: [
+        { ownerId: userId },
+        { visibility: { $in: ["public", "collaborative"] } },
+      ],
+    });
+  } finally {
+    Playlist.find = originalFind;
+  }
+});
+
+test("la découverte renvoie aussi une playlist publique créée par un autre membre", async () => {
+  const viewerId = new mongoose.Types.ObjectId().toString();
+  const ownerId = new mongoose.Types.ObjectId().toString();
+  const playlistId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: viewerId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFind = Playlist.find;
+  Playlist.find = () => ({
+    populate() {
+      return this;
+    },
+    sort() {
+      return this;
+    },
+    lean: async () => [{
+      _id: playlistId,
+      ownerId: { _id: ownerId, name: "Créateur" },
+      name: "Session publique",
+      visibility: "public",
+      tracks: [],
+    }],
+  });
+
+  try {
+    const response = await fetch(`${base}/api/playlists`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.length, 1);
+    assert.equal(body[0].id, playlistId);
+    assert.deepEqual(body[0].owner, { id: ownerId, name: "Créateur" });
+    assert.equal(body[0].visibility, "public");
+  } finally {
+    Playlist.find = originalFind;
+  }
+});
+
+test("la création de playlist valide le nom et la visibilité", async () => {
+  const token = jwt.sign(
+    { sub: new mongoose.Types.ObjectId().toString() },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+  const emptyNameResponse = await fetch(`${base}/api/playlists`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name: "   ", visibility: "private" }),
+  });
+  const invalidVisibilityResponse = await fetch(`${base}/api/playlists`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name: "Jam", visibility: "friends" }),
+  });
+
+  assert.equal(emptyNameResponse.status, 400);
+  assert.equal(invalidVisibilityResponse.status, 400);
+});
+
+test("le créateur peut rendre sa playlist publique", async () => {
+  const ownerId = new mongoose.Types.ObjectId().toString();
+  const playlistId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: ownerId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalFindOneAndUpdate = Playlist.findOneAndUpdate;
+  let updateFilter;
+  let updateDocument;
+  Playlist.findOneAndUpdate = (filter, update) => {
+    updateFilter = filter;
+    updateDocument = update;
+    return {
+      populate() {
+        return this;
+      },
+      lean: async () => ({
+        _id: playlistId,
+        ownerId: { _id: ownerId, name: "Créateur" },
+        name: "Session",
+        visibility: "public",
+        tracks: [],
+      }),
+    };
+  };
+
+  try {
+    const response = await fetch(`${base}/api/playlists/${playlistId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ visibility: "public" }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(updateFilter, { _id: playlistId, ownerId });
+    assert.deepEqual(updateDocument.$set, { visibility: "public" });
+    assert.equal(body.visibility, "public");
+  } finally {
+    Playlist.findOneAndUpdate = originalFindOneAndUpdate;
+  }
+});
+
+test("les playlists privées sont invisibles aux autres membres", async () => {
+      const ownerId = new mongoose.Types.ObjectId().toString();
+      const viewerId = new mongoose.Types.ObjectId().toString();
+      const playlistId = new mongoose.Types.ObjectId().toString();
+      const token = jwt.sign(
+        { sub: viewerId },
+        process.env.JWT_SECRET || "tp1-development-secret",
+      );
+      const originalFind = Playlist.findById;
+      let playlistOwner = ownerId;
+      Playlist.findById = () => ({
+        populate() {
+          return this;
+        },
+        lean: async () => ({
+          _id: playlistId,
+          ownerId: playlistOwner,
+          name: "Privée",
+          visibility: "private",
+          tracks: [],
+        }),
+      });
+
+      try {
+        const hiddenResponse = await fetch(`${base}/api/playlists/${playlistId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(hiddenResponse.status, 404);
+
+        playlistOwner = viewerId;
+        const ownerResponse = await fetch(`${base}/api/playlists/${playlistId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(ownerResponse.status, 200);
+        const body = await ownerResponse.json();
+        assert.equal(body.owner.id, viewerId);
+        assert.equal(body.name, "Privée");
+      } finally {
+        Playlist.findById = originalFind;
+      }
+});
+
+test("une piste utilisée par une playlist ne peut pas être supprimée", async () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+  const trackId = new mongoose.Types.ObjectId().toString();
+  const token = jwt.sign(
+    { sub: userId },
+    process.env.JWT_SECRET || "tp1-development-secret",
+  );
+  const originalPostExists = Post.exists;
+  const originalPlaylistExists = Playlist.exists;
+  const originalTrackDelete = Track.findOneAndDelete;
+  let deleteCalled = false;
+  Post.exists = async () => null;
+  Playlist.exists = async (filter) => {
+    assert.deepEqual(filter, { "tracks.trackId": trackId });
+    return { _id: new mongoose.Types.ObjectId() };
+  };
+  Track.findOneAndDelete = () => {
+    deleteCalled = true;
+  };
+
+  try {
+    const response = await fetch(`${base}/api/tracks/${trackId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(deleteCalled, false);
+  } finally {
+    Post.exists = originalPostExists;
+    Playlist.exists = originalPlaylistExists;
+    Track.findOneAndDelete = originalTrackDelete;
+  }
+});
+
+test("une playlist collaborative accepte uniquement les pistes du membre connecté", async () => {
+      const ownerId = new mongoose.Types.ObjectId().toString();
+      const contributorId = new mongoose.Types.ObjectId().toString();
+      const playlistId = new mongoose.Types.ObjectId().toString();
+      const trackId = new mongoose.Types.ObjectId().toString();
+      const token = jwt.sign(
+        { sub: contributorId },
+        process.env.JWT_SECRET || "tp1-development-secret",
+      );
+      const originalFindById = Playlist.findById;
+      const originalTrackFindOne = Track.findOne;
+      const originalUpdateOne = Playlist.updateOne;
+      let findCount = 0;
+      let addedTrack;
+      Playlist.findById = () => {
+        findCount += 1;
+        if (findCount === 1) {
+          return {
+            _id: playlistId,
+            ownerId,
+            visibility: "collaborative",
+            tracks: [],
+          };
+        }
+        return {
+          populate() {
+            return this;
+          },
+          lean: async () => ({
+            _id: playlistId,
+            ownerId: { _id: ownerId, name: "Créateur" },
+            name: "Jam",
+            visibility: "collaborative",
+            tracks: [{
+              trackId: {
+                _id: trackId,
+                title: "Improvisation",
+                originalName: "jam.mp3",
+                mimeType: "audio/mpeg",
+                size: 12,
+              },
+              addedBy: contributorId,
+              addedAt: new Date("2026-11-17T00:00:00.000Z"),
+            }],
+          }),
+        };
+      };
+      Track.findOne = async (filter) => {
+        assert.deepEqual(filter, { _id: trackId, ownerId: contributorId });
+        return { _id: trackId };
+      };
+      Playlist.updateOne = async (_filter, update) => {
+        addedTrack = update.$push.tracks;
+        return { matchedCount: 1 };
+      };
+
+      try {
+        const response = await fetch(`${base}/api/playlists/${playlistId}/tracks`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ trackId }),
+        });
+        const body = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(addedTrack, { trackId, addedBy: contributorId });
+        assert.equal(body.tracks[0].track.id, trackId);
+        assert.equal(body.tracks[0].addedBy, contributorId);
+      } finally {
+        Playlist.findById = originalFindById;
+        Track.findOne = originalTrackFindOne;
+        Playlist.updateOne = originalUpdateOne;
+      }
+});
+
+test("un membre collaborateur ne peut retirer que sa propre contribution", async () => {
+      const ownerId = new mongoose.Types.ObjectId().toString();
+      const contributorId = new mongoose.Types.ObjectId().toString();
+      const otherContributorId = new mongoose.Types.ObjectId().toString();
+      const playlistId = new mongoose.Types.ObjectId().toString();
+      const trackId = new mongoose.Types.ObjectId().toString();
+      const token = jwt.sign(
+        { sub: contributorId },
+        process.env.JWT_SECRET || "tp1-development-secret",
+      );
+      const originalFindById = Playlist.findById;
+      const originalUpdateOne = Playlist.updateOne;
+      let addedBy = otherContributorId;
+      let allowDetailedRead = false;
+      let updateFilter;
+      Playlist.findById = () => {
+        if (allowDetailedRead) {
+          return {
+            populate() {
+              return this;
+            },
+            lean: async () => ({
+              _id: playlistId,
+              ownerId: { _id: ownerId, name: "Créateur" },
+              name: "Jam",
+              visibility: "collaborative",
+              tracks: [],
+            }),
+          };
+        }
+        return {
+          _id: playlistId,
+          ownerId,
+          visibility: "collaborative",
+          tracks: [{ trackId, addedBy }],
+        };
+      };
+      Playlist.updateOne = async (filter) => {
+        updateFilter = filter;
+        allowDetailedRead = true;
+        return { matchedCount: 1 };
+      };
+
+      try {
+        const forbiddenResponse = await fetch(
+          `${base}/api/playlists/${playlistId}/tracks/${trackId}`,
+          { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+        );
+        assert.equal(forbiddenResponse.status, 404);
+        assert.equal(updateFilter, undefined);
+
+        addedBy = contributorId;
+        const allowedResponse = await fetch(
+          `${base}/api/playlists/${playlistId}/tracks/${trackId}`,
+          { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+        );
+        assert.equal(allowedResponse.status, 200);
+        assert.deepEqual(updateFilter.tracks, {
+          $elemMatch: { trackId, addedBy: contributorId },
+        });
+      } finally {
+        Playlist.findById = originalFindById;
+        Playlist.updateOne = originalUpdateOne;
+      }
 });
 
 test("les routes des membres et messages exigent une authentification", async () => {

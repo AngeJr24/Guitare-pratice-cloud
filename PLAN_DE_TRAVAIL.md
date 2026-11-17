@@ -9,13 +9,15 @@ Ce fichier sert à garder une trace claire de l’avancement du projet, des vali
 
 ### Dernière vérification réussie
 - Date de dernière mise à jour : 2026-11-17.
-- Périmètre actuel : bibliothèque audio personnelle, profil avec photo, avatars dans la messagerie et le fil social, publications texte/photo/vidéo et messagerie privée.
+- Périmètre actuel : bibliothèque audio personnelle, playlists privées/publiques/collaboratives, profil avec photo, avatars dans la messagerie et le fil social, publications texte/photo/vidéo et messagerie privée.
 - Le retrait des téléchargements communautaires ne supprime pas les fichiers ni les documents historiques déjà présents.
-- Validation automatisée : backend 30 tests réussis ; frontend 40 tests réussis.
+- Validation automatisée après la correction des playlists : backend 39 tests réussis ; frontend 44 tests réussis.
 - Build Angular : `npm run build` réussi.
 - Vérification manuelle multi-comptes à finaliser avant la démonstration.
 
 ### À venir
+- Vérifier dans le navigateur à deux comptes que les playlists publiques/collaboratives sont visibles, ainsi que l’ajout des pistes, le retrait par contributeur et la suppression par le créateur.
+- Vérifier le refus de suppression d’une piste encore référencée par une playlist.
 - Vérifier dans le navigateur l’ajout, le remplacement et la suppression de la photo de profil.
 - Vérifier l’affichage des avatars dans les conversations et les publications avec deux comptes.
 - Vérifier l’upload et l’affichage d’images/vidéos dans le navigateur.
@@ -110,6 +112,21 @@ Le backend fourni reste inchangé pour les missions obligatoires. Consulter `SUJ
 
 ## Journal de travail
 
+### Session du 2026-11-17 — playlists privées, publiques et collaboratives
+- Ajout du modèle `Playlist` et des routes authentifiées de création, consultation, modification, suppression, ajout/retrait de pistes et lecture audio.
+- Une playlist privée est réservée à son créateur ; les playlists publiques et collaboratives sont consultables par les membres connectés.
+- Le créateur conserve la gestion complète. Les autres membres ne peuvent contribuer que dans une playlist collaborative, avec leurs propres pistes ; ils peuvent retirer leurs propres contributions.
+- Les pistes restent dans les bibliothèques personnelles. Une piste déjà référencée ne peut pas être supprimée avant son retrait de ses playlists.
+- Ajout de l’écran Angular `/playlists` avec création, choix de visibilité, consultation, édition, ajout/retrait et lecteur audio authentifié.
+- La sélection de pistes récupère toutes les pages de la bibliothèque personnelle, sans limiter les membres à la première page.
+- Contrat API mis à jour dans `API_CONTRACT.md`.
+- Tests : backend `npm test` — 37 tests réussis ; frontend `npm test` — 10 fichiers, 43 tests réussis ; `npm run build` — réussi.
+- Vérification manuelle multi-comptes et Network non réalisée dans cette session.
+- Suite au retour d’usage : test dédié de la mise en visibilité publique et de la découverte par un autre membre ; ajout d’une navigation unique « Bibliothèque & playlists », avec deux vues internes et redirections conservant `/tracks` et `/playlists`.
+- Cause identifiée pour le changement de visibilité : le formulaire d’édition n’était pas lié à un `FormGroup`, donc son `ngSubmit` ne transmettait pas la modification. Le formulaire est maintenant relié à un groupe réactif et un test vérifie l’envoi de la visibilité `public`.
+- Validation après correction : backend `npm test` — 39 tests réussis ; frontend `npm test` — 10 fichiers, 44 tests réussis ; `npm run build` — réussi.
+- Le test manuel avec les deux comptes reste à effectuer pour confirmer le scénario complet sur MongoDB et dans le navigateur.
+
 ### Session du 2026-10-29 — pivot vers un réseau social musical
 - Décision produit : abandonner la copie de sons depuis les publications ; conserver la bibliothèque audio personnelle.
 - Fil social : ajout de photos/vidéos (JPEG, PNG, WebP, GIF, MP4, WebM), jusqu’à 5 fichiers de 25 Mo, stockage disque et accès authentifié.
@@ -173,6 +190,12 @@ ci-dessus décrivent l’historique de travail et non le comportement actuel.
 ### TP3
 - “On va bosser aujourd'hui sur le tp3, déjà commence par m'expliquer ce qu'il faut faire, et on va compléter progressivement nos fichier plan de travail et rapport ia modele”
 - “Fais moi les test necessaires avec les détails expliquer et nos fichier plan de travail et rapport mis à jour”
+
+### Playlists — 2026-11-17
+- “playlist mais je t'explique”
+- “1-Implémente la notion de playlist, chaque utilisateur pourra créer une playlist et y ajouter les sons déjà uploadés dans sa base personnelle, il pourra définir un nom pour sa playlist, et la supprimer ou ajouter un son a n'importe quel moment. 2- Il peut décider de la rendre privé (visible par lui seul), public (visible par tous le monde en mode consultation écoute simple) ou en mode collaboratif(c'est à dire public pour tous les user et en plus chaque user connecté pourra lui aussi ajouter des sons à la playlist) 3- Pour le mode collaboratif, le créateur seul aura le droit de supprimer la playlist définitivement et chaque utilisateur est libre de retirer le son qu'il a lui même uploadé 4- Mets à jour notre fichier plan de travail en notant chaque prompt et mettre les acti”
+- La fin de ce prompt étant tronquée, la mise à jour du journal consigne les actions effectivement réalisées et les validations, sans compléter la demande manquante par supposition.
+- “1- J'ai crée une playlist avec un premier utilisateur, je l'ai rendu public mais les autres utilisateurs ne la voit pas. 2-De la même manière qu'on a disposé dans l'onglet fil social les différentes fenêtres, faisons pareil aussi avec les deux onglets bibliothèque et playlist faisons un seul titre dans la barre de navigation et quand on va cliquer dessus on aura une page ou on pourra consulter les deux à l'image de la disposition de fil social”
 
 ---
 
@@ -254,6 +277,7 @@ de la musique. Le nom et l’identité visuelle du projet seront choisis plus ta
 | 4 | Likes | Un membre peut aimer puis retirer son like ; le compteur et son état sont cohérents. | À faire |
 | 5 | Commentaires | Un membre peut lire et ajouter un commentaire sur un post auquel il a accès. | À faire |
 | 6 | Identité et présentation | Choisir un nom, adapter l’identité de l’application et préparer une démonstration complète. | À faire |
+| 7 | Playlists privées, publiques et collaboratives | Créer, renommer et supprimer une playlist, ajouter une piste personnelle et appliquer les droits de visibilité et de contribution. | Implémenté côté API et Angular ; tests automatisés réussis, validation navigateur à faire |
 
 ### Incrément 1 — Fil et publications texte (audio reporté au prochain Scrum)
 **Objectif produit corrigé le 2026-10-14 :** un membre connecté peut publier du

@@ -1,0 +1,156 @@
+<section class="page">
+  <div class="hero">
+    <p class="eyebrow">ÉCOUTER ENSEMBLE</p>
+    <h1>Playlists</h1>
+    <p>Créez des listes privées, publiques ou collaboratives avec les pistes importées dans les bibliothèques personnelles.</p>
+  </div>
+
+  <div class="layout">
+    <aside class="card sidebar">
+      <h2>Créer une playlist</h2>
+      <form [formGroup]="createForm" (ngSubmit)="createPlaylist()">
+        <label class="field">
+          Nom
+          <input formControlName="name" maxlength="80" placeholder="Ex. Répétition du groupe" />
+        </label>
+        @if (createForm.controls.name.touched && createForm.controls.name.invalid) {
+          <p class="message error">Saisissez un nom de 1 à 80 caractères.</p>
+        }
+        <label class="field">
+          Visibilité
+          <select formControlName="visibility">
+            <option value="private">Privée — visible par moi seul</option>
+            <option value="public">Publique — écoute par les membres</option>
+            <option value="collaborative">Collaborative — les membres peuvent contribuer</option>
+          </select>
+        </label>
+        <button type="submit" [disabled]="saving() || createForm.invalid">Créer</button>
+      </form>
+
+      <div class="section-heading">
+        <h2>Playlists accessibles</h2>
+        <button type="button" class="secondary" (click)="loadPlaylists()" [disabled]="loadingPlaylists()">Actualiser</button>
+      </div>
+      @if (loadingPlaylists()) {
+        <p class="message info">Chargement des playlists…</p>
+      }
+      @if (listError()) {
+        <p class="message error">{{ listError() }}</p>
+      }
+      <ul class="playlist-list">
+        @for (playlist of playlists(); track playlist.id) {
+          <li>
+            <button type="button" class="playlist-choice" [class.active]="selectedPlaylist()?.id === playlist.id" (click)="openPlaylist(playlist)">
+              <span>{{ playlist.name }}</span>
+              <small>{{ playlist.visibility }} · par {{ playlist.owner.name }} · {{ playlist.trackCount }} piste(s)</small>
+            </button>
+          </li>
+        } @empty {
+          @if (!loadingPlaylists() && !listError()) {
+            <li class="empty-state">Aucune playlist visible pour le moment.</li>
+          }
+        }
+      </ul>
+    </aside>
+
+    <article class="card details">
+      @if (actionError()) {
+        <p class="message error" role="alert">{{ actionError() }}</p>
+      }
+      @if (actionSuccess()) {
+        <p class="message success" role="status">{{ actionSuccess() }}</p>
+      }
+      @if (selectedPlaylist(); as playlist) {
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PLAYLIST {{ playlist.visibility }}</p>
+            <h2>{{ playlist.name }}</h2>
+            <p class="muted">Créée par {{ playlist.owner.name }} · {{ playlist.trackCount }} piste(s)</p>
+          </div>
+          @if (isOwner(playlist)) {
+            <button type="button" class="danger" (click)="deletePlaylist()" [disabled]="deletingPlaylist()">
+              {{ deletingPlaylist() ? 'Suppression…' : 'Supprimer la playlist' }}
+            </button>
+          }
+        </div>
+
+        @if (isOwner(playlist)) {
+          <form class="edit-form" [formGroup]="editForm" (ngSubmit)="savePlaylist()">
+            <label class="field">
+              Nom
+              <input formControlName="name" maxlength="80" />
+            </label>
+            <label class="field">
+              Visibilité
+              <select formControlName="visibility">
+                <option value="private">Privée</option>
+                <option value="public">Publique</option>
+                <option value="collaborative">Collaborative</option>
+              </select>
+            </label>
+            <button type="submit" [disabled]="saving() || editName.invalid">Enregistrer les réglages</button>
+          </form>
+        }
+
+        @if (isOwner(playlist) || playlist.visibility === 'collaborative') {
+          <section class="add-track">
+            <h3>Ajouter une piste de ma bibliothèque</h3>
+            @if (loadingTracks()) {
+              <p class="message info">Chargement de votre bibliothèque…</p>
+            } @else if (trackError()) {
+              <p class="message error">{{ trackError() }}</p>
+            } @else if (availableTracks().length) {
+              <div class="add-controls">
+                <select [formControl]="selectedTrackId" aria-label="Piste à ajouter">
+                  @for (track of availableTracks(); track track.id) {
+                    <option [value]="track.id">{{ track.title }}</option>
+                  }
+                </select>
+                <button type="button" (click)="addTrack()" [disabled]="addingTrack() || !selectedTrackId.value">
+                  {{ addingTrack() ? 'Ajout…' : 'Ajouter' }}
+                </button>
+              </div>
+            } @else {
+              <p class="muted">Aucune piste personnelle disponible à ajouter.</p>
+            }
+          </section>
+        }
+
+        <div class="track-list">
+          @for (entry of playlist.tracks ?? []; track entry.track.id) {
+            <article class="track-row">
+              <div>
+                <h3>{{ entry.track.title }}</h3>
+                <p>{{ entry.track.originalName }} · Ajoutée le {{ entry.addedAt | date:'short' }}</p>
+              </div>
+              <div class="track-actions">
+                <button type="button" class="secondary" (click)="playTrack(entry)">Écouter</button>
+                @if (canRemoveTrack(entry)) {
+                  <button type="button" class="danger" (click)="removeTrack(entry)" [disabled]="removingTrackId() !== null">
+                    {{ removingTrackId() === entry.track.id ? 'Retrait…' : 'Retirer' }}
+                  </button>
+                }
+              </div>
+            </article>
+          } @empty {
+            <p class="empty-state">Cette playlist ne contient pas encore de piste.</p>
+          }
+        </div>
+        @if (audioUrl()) {
+          <div class="player">
+            <p>Lecture de {{ currentAudioTrackTitle() }}</p>
+            <audio [src]="audioUrl()" controls autoplay></audio>
+          </div>
+        }
+        @if (audioError()) {
+          <p class="message error">{{ audioError() }}</p>
+        }
+      } @else {
+        <div class="empty-detail">
+          <h2>Choisissez une playlist</h2>
+          <p>Vos playlists et celles partagées par les autres membres apparaîtront ici.</p>
+        </div>
+      }
+    </article>
+  </div>
+</section>

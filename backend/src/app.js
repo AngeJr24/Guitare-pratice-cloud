@@ -13,6 +13,7 @@ import { Track } from "./models/Track.js";
 import { Post } from "./models/Post.js";
 import { Comment } from "./models/Comment.js";
 import { Message } from "./models/Message.js";
+import { Playlist } from "./models/Playlist.js";
 
 // Les fichiers audio restent sur le disque du serveur dans ce TP.
 // MongoDB ne conserve que leurs métadonnées : titre, nom, taille, etc.
@@ -250,6 +251,47 @@ function readablePostFilter(postId, userId) {
     _id: postId,
     $or: [{ visibility: { $ne: "private" } }, { authorId: userId }],
   };
+}
+
+function publicPlaylist(playlist, includeTracks = false) {
+  const owner = playlist.ownerId;
+  const result = {
+    id: String(playlist._id ?? playlist.id),
+    name: playlist.name,
+    visibility: playlist.visibility,
+    owner: {
+      id: String(owner?._id ?? owner),
+      name: owner?.name ?? "",
+    },
+    trackCount: playlist.tracks?.length ?? 0,
+    createdAt: playlist.createdAt,
+    updatedAt: playlist.updatedAt,
+  };
+
+  if (includeTracks) {
+    result.tracks = (playlist.tracks ?? [])
+      .filter((entry) => entry.trackId)
+      .map((entry) => {
+        const track = entry.trackId;
+        return {
+          track: {
+            id: String(track._id ?? track.id),
+            title: track.title,
+            originalName: track.originalName,
+            mimeType: track.mimeType,
+            size: track.size,
+          },
+          addedBy: String(entry.addedBy?._id ?? entry.addedBy),
+          addedAt: entry.addedAt,
+        };
+      });
+  }
+
+  return result;
+}
+
+function validObjectId(value) {
+  return mongoose.isValidObjectId(value);
 }
 
 async function cleanupPostMedia(files = []) {
@@ -1048,6 +1090,269 @@ export function createApp() {
     }
   });
 
+  app.get("/api/playlists", auth, async (req, res, next) => {
+    try {
+      const playlists = await Playlist.find({
+        $or: [
+          { ownerId: req.auth.sub },
+          { visibility: { $in: ["public", "collaborative"] } },
+        ],
+      })
+        .populate("ownerId", "name")
+        .sort({ updatedAt: -1 })
+        .lean();
+
+      res.json(playlists.map((playlist) => publicPlaylist(playlist)));
+    } catch (error) {
+      console.error("[playlists] Erreur de lecture des playlists", error);
+      next(error);
+    }
+  });
+
+  app.post("/api/playlists", auth, async (req, res, next) => {
+    try {
+      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      const visibility = req.body?.visibility ?? "private";
+      if (!name || name.length > 80) {
+        return res.status(400).json({
+          message: "Le nom de la playlist doit contenir de 1 à 80 caractères",
+        });
+      }
+      if (!["private", "public", "collaborative"].includes(visibility)) {
+        return res.status(400).json({ message: "Visibilité de playlist invalide" });
+      }
+
+      const playlist = await Playlist.create({
+        ownerId: req.auth.sub,
+        name,
+        visibility,
+      });
+      const populated = await Playlist.findById(playlist.id)
+        .populate("ownerId", "name")
+        .lean();
+      res.status(201).json(publicPlaylist(populated));
+    } catch (error) {
+      console.error("[playlists] Erreur de création", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/playlists/:id", auth, async (req, res, next) => {
+    try {
+      if (!validObjectId(req.params.id)) {
+        return res.status(400).json({ message: "Identifiant de playlist invalide" });
+      }
+      const playlist = await Playlist.findById(req.params.id)
+        .populate("ownerId", "name")
+        .populate("tracks.trackId", "title originalName mimeType size ownerId")
+        .lean();
+
+      if (
+        !playlist ||
+        (playlist.visibility === "private" &&
+          String(playlist.ownerId?._id ?? playlist.ownerId) !== req.auth.sub)
+      ) {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+
+      res.json(publicPlaylist(playlist, true));
+    } catch (error) {
+      console.error("[playlists] Erreur de lecture", error);
+      next(error);
+    }
+  });
+
+  app.patch("/api/playlists/:id", auth, async (req, res, next) => {
+    try {
+      if (!validObjectId(req.params.id)) {
+        return res.status(400).json({ message: "Identifiant de playlist invalide" });
+      }
+      const updates = {};
+      if (Object.hasOwn(req.body ?? {}, "name")) {
+        const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+        if (!name || name.length > 80) {
+          return res.status(400).json({
+            message: "Le nom de la playlist doit contenir de 1 à 80 caractères",
+          });
+        }
+        updates.name = name;
+      }
+      if (Object.hasOwn(req.body ?? {}, "visibility")) {
+        if (!["private", "public", "collaborative"].includes(req.body.visibility)) {
+          return res.status(400).json({ message: "Visibilité de playlist invalide" });
+        }
+        updates.visibility = req.body.visibility;
+      }
+      if (!Object.keys(updates).length) {
+        return res.status(400).json({ message: "Aucune modification à enregistrer" });
+      }
+
+      const playlist = await Playlist.findOneAndUpdate(
+        { _id: req.params.id, ownerId: req.auth.sub },
+        { $set: updates },
+        { new: true, runValidators: true },
+      )
+        .populate("ownerId", "name")
+        .lean();
+      if (!playlist) {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+      res.json(publicPlaylist(playlist));
+    } catch (error) {
+      console.error("[playlists] Erreur de modification", error);
+      next(error);
+    }
+  });
+
+  app.delete("/api/playlists/:id", auth, async (req, res, next) => {
+    try {
+      if (!validObjectId(req.params.id)) {
+        return res.status(400).json({ message: "Identifiant de playlist invalide" });
+      }
+      const playlist = await Playlist.findOneAndDelete({
+        _id: req.params.id,
+        ownerId: req.auth.sub,
+      });
+      if (!playlist) {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+      res.status(204).end();
+    } catch (error) {
+      console.error("[playlists] Erreur de suppression", error);
+      next(error);
+    }
+  });
+
+  app.post("/api/playlists/:id/tracks", auth, async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const trackId = req.body?.trackId;
+      if (!validObjectId(id) || !validObjectId(trackId)) {
+        return res.status(400).json({ message: "Identifiant de playlist ou de piste invalide" });
+      }
+
+      const playlist = await Playlist.findById(id);
+      if (!playlist) {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+      const isOwner = String(playlist.ownerId) === req.auth.sub;
+      if (!isOwner && playlist.visibility !== "collaborative") {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+
+      const track = await Track.findOne({ _id: trackId, ownerId: req.auth.sub });
+      if (!track) {
+        return res.status(404).json({ message: "Piste inconnue" });
+      }
+      const result = await Playlist.updateOne(
+        { _id: id, "tracks.trackId": { $ne: track._id } },
+        {
+          $push: {
+            tracks: { trackId: track._id, addedBy: req.auth.sub },
+          },
+        },
+      );
+      if (result.matchedCount === 0) {
+        return res.status(409).json({ message: "Cette piste est déjà dans la playlist" });
+      }
+
+      const updated = await Playlist.findById(id)
+        .populate("ownerId", "name")
+        .populate("tracks.trackId", "title originalName mimeType size ownerId")
+        .lean();
+      res.status(200).json(publicPlaylist(updated, true));
+    } catch (error) {
+      console.error("[playlists] Erreur d’ajout de piste", error);
+      next(error);
+    }
+  });
+
+  app.delete("/api/playlists/:id/tracks/:trackId", auth, async (req, res, next) => {
+    try {
+      const { id, trackId } = req.params;
+      if (!validObjectId(id) || !validObjectId(trackId)) {
+        return res.status(400).json({ message: "Identifiant de playlist ou de piste invalide" });
+      }
+
+      const playlist = await Playlist.findById(id);
+      if (!playlist) {
+        return res.status(404).json({ message: "Playlist inconnue" });
+      }
+      const isOwner = String(playlist.ownerId) === req.auth.sub;
+      const contribution = playlist.tracks.find(
+        (entry) => String(entry.trackId) === trackId,
+      );
+      if (!contribution) {
+        return res.status(404).json({ message: "Piste inconnue dans cette playlist" });
+      }
+      if (
+        !isOwner &&
+        (playlist.visibility !== "collaborative" ||
+          String(contribution.addedBy) !== req.auth.sub)
+      ) {
+        return res.status(404).json({ message: "Piste inconnue dans cette playlist" });
+      }
+
+      const filter = { _id: id };
+      if (!isOwner) {
+        filter.tracks = {
+          $elemMatch: { trackId, addedBy: req.auth.sub },
+        };
+      }
+      const result = await Playlist.updateOne(filter, {
+        $pull: { tracks: { trackId } },
+      });
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Piste inconnue dans cette playlist" });
+      }
+
+      const updated = await Playlist.findById(id)
+        .populate("ownerId", "name")
+        .populate("tracks.trackId", "title originalName mimeType size ownerId")
+        .lean();
+      res.json(publicPlaylist(updated, true));
+    } catch (error) {
+      console.error("[playlists] Erreur de retrait de piste", error);
+      next(error);
+    }
+  });
+
+  app.get("/api/playlists/:id/tracks/:trackId/audio", auth, async (req, res, next) => {
+    try {
+      const { id, trackId } = req.params;
+      if (!validObjectId(id) || !validObjectId(trackId)) {
+        return res.status(400).json({ message: "Identifiant de playlist ou de piste invalide" });
+      }
+      const playlist = await Playlist.findById(id).lean();
+      const canView = playlist &&
+        (playlist.visibility !== "private" || String(playlist.ownerId) === req.auth.sub);
+      const containsTrack = playlist?.tracks.some(
+        (entry) => String(entry.trackId) === trackId,
+      );
+      if (!canView || !containsTrack) {
+        return res.status(404).json({ message: "Piste inconnue dans cette playlist" });
+      }
+
+      const track = await Track.findById(trackId).select("+storedName");
+      if (!track) {
+        return res.status(404).json({ message: "Piste inconnue dans cette playlist" });
+      }
+
+      res.type(track.mimeType);
+      res.sendFile(path.join(UPLOADS, track.storedName), (error) => {
+        if (error) {
+          console.error(`[playlists] Erreur d’envoi audio ${track.id}`, error);
+          if (!res.headersSent) next(error);
+          return;
+        }
+        console.log(`[playlists] Audio envoyé : ${track.id}`);
+      });
+    } catch (error) {
+      console.error("[playlists] Erreur de préparation du flux audio", error);
+      next(error);
+    }
+  });
+
   app.get("/api/tracklists", auth, async (req, res, next) => {
     try {
       const tracks = await Track.find({
@@ -1204,6 +1509,15 @@ export function createApp() {
       if (postUsingTrack) {
         return res.status(409).json({
           message: "Cette piste est liée à une publication. Supprimez d’abord la publication.",
+        });
+      }
+
+      const playlistUsingTrack = await Playlist.exists({
+        "tracks.trackId": req.params.id,
+      });
+      if (playlistUsingTrack) {
+        return res.status(409).json({
+          message: "Cette piste est dans une playlist. Retirez-la d’abord de ses playlists.",
         });
       }
 

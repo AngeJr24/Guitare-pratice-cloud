@@ -3,8 +3,8 @@
 Toutes les routes sont préfixées par `/api`. Sauf inscription, connexion et
 vérification de santé, elles exigent `Authorization: Bearer <JWT>`.
 
-MongoDB conserve les comptes, les métadonnées des pistes, publications et
-messages. Les octets des pistes audio restent dans `backend/data/uploads/` ;
+MongoDB conserve les comptes, les métadonnées des pistes, publications,
+messages et playlists. Les octets des pistes audio restent dans `backend/data/uploads/` ;
 les photos et vidéos du fil restent dans `backend/data/media/`.
 
 | Méthode | Route | Auth. | Requête | Réponse principale |
@@ -22,8 +22,16 @@ les photos et vidéos du fil restent dans `backend/data/media/`.
 | GET | `/tracks?page=1&limit=5` | Oui | — | `200 Page<Track>` |
 | POST | `/tracks` | Oui | multipart `audio`, `title` | `201 Track` |
 | GET | `/tracks/:id/audio` | Oui, propriétaire | — | Flux audio |
-| DELETE | `/tracks/:id` | Oui, propriétaire | — | `204`, ou `409` si une publication référence la piste |
+| DELETE | `/tracks/:id` | Oui, propriétaire | — | `204`, ou `409` si une publication ou playlist référence la piste |
 | GET | `/tracklists` | Oui | — | `200 Track[]` (bibliothèque audio personnelle) |
+| GET | `/playlists` | Oui | — | `200 PlaylistSummary[]` (privées personnelles et publiques/collaboratives) |
+| POST | `/playlists` | Oui | JSON `{name,visibility?}` | `201 PlaylistSummary` |
+| GET | `/playlists/:id` | Oui | — | `200 Playlist` ; playlist privée réservée à son créateur |
+| PATCH | `/playlists/:id` | Oui, créateur | JSON `{name?,visibility?}` | `200 PlaylistSummary` |
+| DELETE | `/playlists/:id` | Oui, créateur | — | `204` |
+| POST | `/playlists/:id/tracks` | Oui, créateur ou membre si collaborative | JSON `{trackId}` (piste personnelle) | `200 Playlist` |
+| DELETE | `/playlists/:id/tracks/:trackId` | Oui, créateur ou contributeur autorisé | — | `200 Playlist` mise à jour |
+| GET | `/playlists/:id/tracks/:trackId/audio` | Oui, membre autorisé | — | Flux audio si playlist consultable et piste présente |
 | GET | `/posts?page=1&limit=10` | Oui | — | `200 Page<Post>` |
 | POST | `/posts` | Oui | multipart `content?`, `visibility?`, `media*` | `201 Post` |
 | GET | `/posts/:id/audio` | Oui, membre autorisé | — | Flux audio |
@@ -55,6 +63,32 @@ de 5 Mo.
 `SocialMember` contient `id`, `name` et `profilePhoto` (`mimeType`, `size`, ou
 `null`). Les messages et les conversations renvoient les mêmes métadonnées
 publiques pour chaque membre, sans exposer le nom de stockage.
+
+## Playlists
+
+`PlaylistSummary` contient `id`, `name`, `visibility`, `owner` (`id`, `name`),
+`trackCount`, `createdAt` et `updatedAt`. Une réponse `Playlist` ajoute
+`tracks[]` ; chaque entrée contient `track` (`id`, `title`, `originalName`,
+`mimeType`, `size`), `addedBy` (identifiant du membre) et `addedAt`. Les noms
+techniques des fichiers ne sont jamais exposés.
+
+Les visibilités acceptées sont `private`, `public` et `collaborative`. Toutes
+les routes exigent un membre connecté : « public » signifie visible et
+consultable par tous les membres connectés. Une playlist privée n’est visible
+que par son créateur. Celui-ci peut modifier le nom et la visibilité, supprimer
+la playlist définitivement, et ajouter ou retirer n’importe quelle piste. Une
+playlist publique est en lecture seule pour les autres membres. Dans une
+playlist collaborative, chaque membre connecté peut ajouter une piste qu’il a
+lui-même importée dans sa bibliothèque et ne peut retirer que les pistes qu’il
+y a ajoutées ; le créateur conserve tous les droits de gestion.
+
+Une piste ne peut être ajoutée qu’une fois par playlist. Les pistes restent
+dans la bibliothèque de leur propriétaire ; elles ne sont ni copiées ni
+téléchargées par cette fonctionnalité. Pour éviter une playlist cassée, une
+piste référencée ne peut pas être supprimée de sa bibliothèque (`409`) avant
+d’être retirée de ses playlists. L’écoute passe par la route audio de la
+playlist, qui vérifie l’accès à celle-ci ainsi que la présence de la piste. Le
+nom est nettoyé et limité à 80 caractères.
 
 ## Publications et médias
 
@@ -113,8 +147,9 @@ comme lus.
 - `400` : données invalides, format de média refusé, fichier trop volumineux,
   trop de médias ou identifiant de destinataire invalide.
 - `401` : JWT absent, invalide ou expiré.
-- `404` : piste, média, publication ou membre absent/non accessible.
-- `409` : email déjà utilisé ou suppression d’une piste encore référencée.
+- `404` : piste, playlist, média, publication ou membre absent/non accessible.
+- `409` : email déjà utilisé, piste déjà présente dans une playlist ou piste
+  encore référencée par une publication ou une playlist.
 
 Pour `POST /tracks`, le statut `201` confirme l’écriture du fichier et de ses
 métadonnées. `POST /posts` avec des médias confirme l’enregistrement des
